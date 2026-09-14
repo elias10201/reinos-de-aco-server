@@ -1,1126 +1,637 @@
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
 
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
+  cors: { origin: "*" }
 });
 
-app.get("/", (req, res) => {
-  res.send("⚔️ Servidor Reinos de Aço online!");
+app.get('/', (req, res) => {
+  res.send('Reinos de Aço - Servidor Multiplayer Online ⚔️');
 });
-
-/* =========================================================
-   DADOS DO SERVIDOR
-========================================================= */
 
 const players = {};
 const profiles = {};
-const friendRequests = {};
-const teams = {};
-const invites = {};
-const rooms = {};
+const friends = {};       // friends[userId] = Set(userId)
+const friendRequests = {}; // friendRequests[userId] = Set(userId)
+const teams = {};         // teams[teamId] = team
+const invites = {};       // invites[userId] = [{type,...}]
+const rooms = {};          // rooms[roomId] = room
 
-/* =========================================================
-   FUNÇÕES AUXILIARES
-========================================================= */
-
-function cleanText(text, max = 120) {
-  if (typeof text !== "string") return "";
-  return text.trim().slice(0, max);
+function safeText(value, max = 180) {
+  return String(value ?? '').trim().slice(0, max);
 }
 
-function createProfile(socket, data = {}) {
-  const userId = cleanText(data.userId, 80) || socket.id;
-
-  if (!profiles[userId]) {
-    profiles[userId] = {
-      userId,
-      name:
-        cleanText(data.nome || data.name, 30) ||
-        `Guerreiro_${socket.id.slice(0, 5)}`,
-      classe: cleanText(data.classe, 30) || "guerreiro",
-      socketId: socket.id,
-      online: true,
-      local: data.local || "game",
-      friends: [],
-      teamId: null
-    };
-  } else {
-    profiles[userId].socketId = socket.id;
-    profiles[userId].online = true;
-
-    if (data.nome || data.name) {
-      profiles[userId].name =
-        cleanText(data.nome || data.name, 30) ||
-        profiles[userId].name;
-    }
-
-    if (data.classe) {
-      profiles[userId].classe = cleanText(data.classe, 30);
-    }
-
-    if (data.local) {
-      profiles[userId].local = data.local;
-    }
-  }
-
-  socket.userId = userId;
-
-  return profiles[userId];
-}
-
-function getProfile(socket) {
-  if (!socket.userId) return null;
-  return profiles[socket.userId] || null;
-}
-
-function getSocketByUserId(userId) {
-  const profile = profiles[userId];
-  if (!profile || !profile.online) return null;
-
-  return io.sockets.sockets.get(profile.socketId) || null;
-}
-
-function publicProfile(userId) {
-  const p = profiles[userId];
-
+function publicPlayer(socketId) {
+  const p = players[socketId];
   if (!p) return null;
 
   return {
+    id: p.id,
     userId: p.userId,
-    name: p.name,
-    classe: p.classe,
-    online: p.online,
-    local: p.local,
-    teamId: p.teamId
+    x: Number(p.x) || 0,
+    y: Number(p.y) || 0,
+    classe: p.classe || 'guerreiro',
+    facing: p.facing || 1,
+    nome: p.nome || 'Guerreiro',
+    name: p.nome || 'Guerreiro',
+    local: p.local || 'lobby',
+    status: p.status || 'online',
+    teamId: p.teamId || null
   };
 }
 
-function sendFriends(socket) {
-  const profile = getProfile(socket);
-
-  if (!profile) return;
-
-  socket.emit(
-    "friendsList",
-    profile.friends
-      .map(id => publicProfile(id))
-      .filter(Boolean)
-  );
+function emitPlayers() {
+  const result = {};
+  for (const id of Object.keys(players)) {
+    result[id] = publicPlayer(id);
+  }
+  io.emit('updatePlayers', result);
 }
 
-function broadcastOnlinePlayers() {
-  io.emit(
-    "onlinePlayers",
-    Object.values(profiles)
-      .filter(p => p.online)
-      .map(p => publicProfile(p.userId))
-  );
+function getSocketIdByUserId(userId) {
+  for (const id of Object.keys(players)) {
+    if (players[id].userId === userId) return id;
+  }
+  return null;
 }
 
-/* =========================================================
-   CONEXÃO
-========================================================= */
+function sendToUser(userId, event, data) {
+  const socketId = getSocketIdByUserId(userId);
+  if (socketId) io.to(socketId).emit(event, data);
+}
 
-io.on("connection", socket => {
+function ensureUserData(userId, nome) {
+  if (!profiles[userId]) {
+    profiles[userId] = {
+      id: userId,
+      nome: nome || 'Guerreiro',
+      createdAt: Date.now()
+    };
+  } else if (nome) {
+    profiles[userId].nome = nome;
+  }
 
-  console.log("⚔️ Novo guerreiro conectou:", socket.id);
+  if (!friends[userId]) friends[userId] = new Set();
+  if (!friendRequests[userId]) friendRequests[userId] = new Set();
+  if (!invites[userId]) invites[userId] = [];
+}
 
-  /* =======================================================
-     JOIN — COMPATÍVEL COM O MULTIPLAYER ANTIGO
-  ======================================================= */
+function friendsList(userId) {
+  ensureUserData(userId);
 
-  socket.on("join", (data = {}) => {
+  return [...friends[userId]].map(id => {
+    const socketId = getSocketIdByUserId(id);
+    const profile = profiles[id] || { id, nome: 'Guerreiro' };
+    return {
+      id,
+      nome: profile.nome,
+      online: !!socketId,
+      socketId: socketId || null,
+      player: socketId ? publicPlayer(socketId) : null
+    };
+  });
+}
 
-    const profile = createProfile(socket, data);
+function sendSocialState(userId) {
+  ensureUserData(userId);
+
+  const requests = [...friendRequests[userId]].map(id => ({
+    id,
+    nome: profiles[id]?.nome || 'Guerreiro',
+    online: !!getSocketIdByUserId(id)
+  }));
+
+  const myTeam = Object.values(teams).find(t => t.members.includes(userId)) || null;
+
+  sendToUser(userId, 'socialState', {
+    friends: friendsList(userId),
+    requests,
+    invites: invites[userId],
+    team: myTeam ? {
+      id: myTeam.id,
+      nome: myTeam.nome,
+      lider: myTeam.lider,
+      members: myTeam.members.map(id => ({
+        id,
+        nome: profiles[id]?.nome || 'Guerreiro',
+        online: !!getSocketIdByUserId(id)
+      }))
+    } : null
+  });
+}
+
+function notifyFriendsOnline(userId) {
+  ensureUserData(userId);
+  for (const friendId of friends[userId]) {
+    sendSocialState(friendId);
+  }
+}
+
+function removeFromRoom(userId) {
+  for (const roomId of Object.keys(rooms)) {
+    const room = rooms[roomId];
+    if (!room.players.includes(userId)) continue;
+
+    room.players = room.players.filter(id => id !== userId);
+    if (room.players.length === 0) {
+      delete rooms[roomId];
+    } else {
+      io.to(roomId).emit('roomUpdate', room);
+    }
+  }
+}
+
+io.on('connection', (socket) => {
+  console.log('Novo guerreiro conectou:', socket.id);
+
+  socket.on('join', (data = {}) => {
+    const nome = safeText(data.nome || data.name, 24) || 'Guerreiro';
+    const userId = safeText(data.userId, 80) || socket.id;
+
+    // Se a mesma conta conectar novamente, substitui a conexão antiga.
+    const oldSocketId = getSocketIdByUserId(userId);
+    if (oldSocketId && oldSocketId !== socket.id) {
+      delete players[oldSocketId];
+    }
+
+    ensureUserData(userId, nome);
 
     players[socket.id] = {
       id: socket.id,
-      userId: profile.userId,
-      nome: profile.name,
-      name: profile.name,
+      userId,
       x: Number(data.x) || 0,
       y: Number(data.y) || 0,
-      classe: profile.classe,
-      facing: Number(data.facing) || 1,
-      local: data.local || "game"
+      classe: data.classe || 'guerreiro',
+      facing: data.facing || 1,
+      nome,
+      local: data.local || 'lobby',
+      status: 'online',
+      teamId: null
     };
 
-    console.log(
-      `🟢 ${profile.name} entrou em ${players[socket.id].local}`
-    );
-
-    io.emit("updatePlayers", players);
-
-    sendFriends(socket);
-    broadcastOnlinePlayers();
-
-    socket.emit("profileData", publicProfile(profile.userId));
-  });
-
-  /* =======================================================
-     MOVIMENTO
-  ======================================================= */
-
-  socket.on("move", (data = {}) => {
-
-    if (!players[socket.id]) return;
-
-    const player = players[socket.id];
-
-    if (typeof data.x === "number") {
-      player.x = data.x;
-    }
-
-    if (typeof data.y === "number") {
-      player.y = data.y;
-    }
-
-    if (typeof data.facing === "number") {
-      player.facing = data.facing;
-    }
-
-    if (data.local) {
-      player.local = data.local;
-    }
-
-    if (data.nome || data.name) {
-      player.nome =
-        cleanText(data.nome || data.name, 30) ||
-        player.nome;
-    }
-
-    if (players[socket.id].userId) {
-      const profile = profiles[players[socket.id].userId];
-
-      if (profile) {
-        if (data.local) {
-          profile.local = data.local;
-        }
-
-        if (data.nome || data.name) {
-          profile.name =
-            cleanText(data.nome || data.name, 30) ||
-            profile.name;
-        }
-      }
-    }
-
-    io.emit("updatePlayers", players);
-  });
-
-  /* =======================================================
-     ALTERAR LOCAL
-     game / social / lobby / pvp
-  ======================================================= */
-
-  socket.on("setLocation", data => {
-
-    const profile = getProfile(socket);
-
-    if (!profile) return;
-
-    const local = cleanText(data?.local, 30) || "game";
-
-    profile.local = local;
-
-    if (players[socket.id]) {
-      players[socket.id].local = local;
-    }
-
-    io.emit("playerLocationChanged", {
-      userId: profile.userId,
-      local
+    socket.data.userId = userId;
+    socket.emit('connectedInfo', {
+      socketId: socket.id,
+      userId,
+      nome
     });
 
-    io.emit("updatePlayers", players);
+    sendSocialState(userId);
+    emitPlayers();
+    notifyFriendsOnline(userId);
+
+    console.log(`${nome} entrou online (${socket.id})`);
   });
 
-  /* =======================================================
-     CHAT
-  ======================================================= */
+  socket.on('move', (data = {}) => {
+    const p = players[socket.id];
+    if (!p) return;
 
-  socket.on("chatMessage", data => {
+    p.x = Number(data.x) || 0;
+    p.y = Number(data.y) || 0;
+    p.facing = data.facing || p.facing;
+    if (data.local) p.local = safeText(data.local, 30);
 
-    const profile = getProfile(socket);
+    // Mantém o mesmo evento usado pelo jogo atual.
+    emitPlayers();
+  });
 
-    if (!profile) return;
+  socket.on('setLocation', (data = {}) => {
+    const p = players[socket.id];
+    if (!p) return;
 
-    const text = cleanText(data?.text, 200);
+    p.local = safeText(data.local, 30) || 'lobby';
+    emitPlayers();
+  });
 
+  // =========================
+  // CHAT
+  // =========================
+  socket.on('chatMessage', (data = {}) => {
+    const p = players[socket.id];
+    if (!p) return;
+
+    const text = safeText(data.text, 180);
     if (!text) return;
 
-    const message = {
+    io.emit('chatMessage', {
       id: socket.id,
-      userId: profile.userId,
-      nome: profile.name,
-      name: profile.name,
-      classe: profile.classe,
+      userId: p.userId,
+      nome: p.nome,
+      classe: p.classe,
       text,
-      local: profile.local,
+      local: p.local || 'lobby',
       time: Date.now()
-    };
-
-    io.emit("chatMessage", message);
-  });
-
-  /* =======================================================
-     LISTA DE JOGADORES ONLINE
-  ======================================================= */
-
-  socket.on("getOnlinePlayers", () => {
-    broadcastOnlinePlayers();
-  });
-
-  /* =======================================================
-     AMIZADE
-  ======================================================= */
-
-  socket.on("friendRequest", data => {
-
-    const sender = getProfile(socket);
-
-    if (!sender) return;
-
-    const targetId = cleanText(data?.userId, 80);
-
-    if (!targetId) return;
-
-    if (targetId === sender.userId) {
-      socket.emit("friendError", {
-        message: "Você não pode adicionar você mesmo."
-      });
-      return;
-    }
-
-    if (!profiles[targetId]) {
-      socket.emit("friendError", {
-        message: "Jogador não encontrado."
-      });
-      return;
-    }
-
-    if (sender.friends.includes(targetId)) {
-      socket.emit("friendError", {
-        message: "Esse jogador já está nos seus amigos."
-      });
-      return;
-    }
-
-    if (!friendRequests[targetId]) {
-      friendRequests[targetId] = [];
-    }
-
-    if (friendRequests[targetId].includes(sender.userId)) {
-      socket.emit("friendError", {
-        message: "Solicitação já enviada."
-      });
-      return;
-    }
-
-    friendRequests[targetId].push(sender.userId);
-
-    const targetSocket = getSocketByUserId(targetId);
-
-    if (targetSocket) {
-      targetSocket.emit("friendRequestReceived", {
-        from: publicProfile(sender.userId)
-      });
-    }
-
-    socket.emit("friendRequestSent", {
-      to: publicProfile(targetId)
     });
   });
 
-  /* =======================================================
-     RESPOSTA DE AMIZADE
-  ======================================================= */
+  // =========================
+  // AMIZADES
+  // =========================
+  socket.on('friendRequest', (data = {}) => {
+    const from = players[socket.id];
+    const targetId = safeText(data.userId, 80);
+    if (!from || !targetId || targetId === from.userId) return;
 
-  socket.on("friendRequestRespond", data => {
+    ensureUserData(from.userId, from.nome);
+    ensureUserData(targetId);
 
-    const receiver = getProfile(socket);
-
-    if (!receiver) return;
-
-    const fromId = cleanText(data?.userId, 80);
-    const accepted = !!data?.accepted;
-
-    if (!fromId) return;
-
-    if (!friendRequests[receiver.userId]) {
-      friendRequests[receiver.userId] = [];
-    }
-
-    friendRequests[receiver.userId] =
-      friendRequests[receiver.userId].filter(
-        id => id !== fromId
-      );
-
-    if (accepted) {
-
-      if (!receiver.friends.includes(fromId)) {
-        receiver.friends.push(fromId);
-      }
-
-      if (profiles[fromId] &&
-          !profiles[fromId].friends.includes(receiver.userId)) {
-
-        profiles[fromId].friends.push(receiver.userId);
-      }
-
-      socket.emit("friendAdded", {
-        friend: publicProfile(fromId)
-      });
-
-      const senderSocket = getSocketByUserId(fromId);
-
-      if (senderSocket) {
-        senderSocket.emit("friendAdded", {
-          friend: publicProfile(receiver.userId)
-        });
-
-        sendFriends(senderSocket);
-      }
-    }
-
-    sendFriends(socket);
-  });
-
-  /* =======================================================
-     REMOVER AMIGO
-  ======================================================= */
-
-  socket.on("removeFriend", data => {
-
-    const profile = getProfile(socket);
-
-    if (!profile) return;
-
-    const friendId = cleanText(data?.userId, 80);
-
-    profile.friends =
-      profile.friends.filter(id => id !== friendId);
-
-    if (profiles[friendId]) {
-      profiles[friendId].friends =
-        profiles[friendId].friends.filter(
-          id => id !== profile.userId
-        );
-    }
-
-    sendFriends(socket);
-
-    const friendSocket = getSocketByUserId(friendId);
-
-    if (friendSocket) {
-      sendFriends(friendSocket);
-    }
-  });
-
-  /* =======================================================
-     VER SOLICITAÇÕES
-  ======================================================= */
-
-  socket.on("getFriendRequests", () => {
-
-    const profile = getProfile(socket);
-
-    if (!profile) return;
-
-    const requests =
-      (friendRequests[profile.userId] || [])
-        .map(id => publicProfile(id))
-        .filter(Boolean);
-
-    socket.emit("friendRequestsList", requests);
-  });
-
-  /* =======================================================
-     CRIAR TIME
-  ======================================================= */
-
-  socket.on("createTeam", data => {
-
-    const leader = getProfile(socket);
-
-    if (!leader) return;
-
-    if (leader.teamId) {
-      socket.emit("teamError", {
-        message: "Você já está em um time."
-      });
+    if (friends[from.userId].has(targetId)) {
+      socket.emit('socialError', { message: 'Vocês já são amigos.' });
       return;
     }
 
-    const teamId =
-      "team_" +
-      Date.now() +
-      "_" +
-      Math.random().toString(36).slice(2, 8);
+    friendRequests[targetId].add(from.userId);
 
-    const team = {
+    sendToUser(targetId, 'friendRequestReceived', {
+      id: from.userId,
+      nome: from.nome,
+      online: true
+    });
+
+    sendSocialState(targetId);
+    sendSocialState(from.userId);
+  });
+
+  socket.on('friendRequestRespond', (data = {}) => {
+    const me = players[socket.id];
+    const fromId = safeText(data.userId, 80);
+    const accept = !!data.accept;
+
+    if (!me || !fromId) return;
+    ensureUserData(me.userId);
+    ensureUserData(fromId);
+
+    friendRequests[me.userId].delete(fromId);
+
+    if (accept) {
+      friends[me.userId].add(fromId);
+      friends[fromId].add(me.userId);
+
+      sendToUser(fromId, 'friendAccepted', {
+        id: me.userId,
+        nome: me.nome
+      });
+    }
+
+    sendSocialState(me.userId);
+    sendSocialState(fromId);
+  });
+
+  socket.on('removeFriend', (data = {}) => {
+    const me = players[socket.id];
+    const otherId = safeText(data.userId, 80);
+    if (!me || !otherId) return;
+
+    friends[me.userId]?.delete(otherId);
+    friends[otherId]?.delete(me.userId);
+
+    sendSocialState(me.userId);
+    sendSocialState(otherId);
+  });
+
+  // =========================
+  // TIMES
+  // =========================
+  socket.on('createTeam', (data = {}) => {
+    const p = players[socket.id];
+    if (!p) return;
+
+    const oldTeam = Object.values(teams).find(t => t.members.includes(p.userId));
+    if (oldTeam) {
+      socket.emit('socialError', { message: 'Você já está em um time.' });
+      return;
+    }
+
+    const nome = safeText(data.nome, 28) || 'Time de Aço';
+    const teamId = `team_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    teams[teamId] = {
       id: teamId,
-      name:
-        cleanText(data?.name, 30) ||
-        `Time de ${leader.name}`,
-      symbol:
-        cleanText(data?.symbol, 10) ||
-        "⚔️",
-      leaderId: leader.userId,
-      members: [leader.userId],
+      nome,
+      lider: p.userId,
+      members: [p.userId],
       createdAt: Date.now()
     };
 
-    teams[teamId] = team;
+    p.teamId = teamId;
 
-    leader.teamId = teamId;
+    socket.emit('teamCreated', {
+      id: teamId,
+      nome
+    });
 
-    socket.emit("teamCreated", team);
-    socket.emit("teamData", team);
-
-    broadcastOnlinePlayers();
+    sendSocialState(p.userId);
+    emitPlayers();
   });
 
-  /* =======================================================
-     CONVIDAR PARA TIME
-  ======================================================= */
+  socket.on('teamInvite', (data = {}) => {
+    const p = players[socket.id];
+    const targetId = safeText(data.userId, 80);
+    if (!p || !targetId) return;
 
-  socket.on("teamInvite", data => {
-
-    const leader = getProfile(socket);
-
-    if (!leader) return;
-
-    const teamId = leader.teamId;
-    const targetId = cleanText(data?.userId, 80);
-
-    if (!teamId || !teams[teamId]) {
-      socket.emit("teamError", {
-        message: "Você não está em um time."
-      });
+    const team = Object.values(teams).find(t => t.members.includes(p.userId));
+    if (!team || team.lider !== p.userId) {
+      socket.emit('socialError', { message: 'Somente o líder pode convidar para o time.' });
       return;
     }
+
+    if (team.members.length >= 6) {
+      socket.emit('socialError', { message: 'O time já está cheio (máximo 6 jogadores).' });
+      return;
+    }
+
+    ensureUserData(targetId);
+
+    invites[targetId] = invites[targetId] || [];
+    invites[targetId] = invites[targetId].filter(i => !(i.type === 'team' && i.teamId === team.id));
+    invites[targetId].push({
+      type: 'team',
+      teamId: team.id,
+      teamNome: team.nome,
+      fromId: p.userId,
+      fromNome: p.nome,
+      createdAt: Date.now()
+    });
+
+    sendToUser(targetId, 'teamInviteReceived', invites[targetId][invites[targetId].length - 1]);
+    sendSocialState(targetId);
+  });
+
+  socket.on('teamInviteRespond', (data = {}) => {
+    const p = players[socket.id];
+    const teamId = safeText(data.teamId, 100);
+    const accept = !!data.accept;
+
+    if (!p || !teamId) return;
 
     const team = teams[teamId];
-
-    if (team.leaderId !== leader.userId) {
-      socket.emit("teamError", {
-        message: "Somente o líder pode convidar."
-      });
-      return;
-    }
-
-    if (!profiles[targetId]) {
-      socket.emit("teamError", {
-        message: "Jogador não encontrado."
-      });
-      return;
-    }
-
-    if (team.members.includes(targetId)) {
-      socket.emit("teamError", {
-        message: "Esse jogador já está no time."
-      });
-      return;
-    }
-
-    const targetSocket = getSocketByUserId(targetId);
-
-    if (!targetSocket) {
-      socket.emit("teamError", {
-        message: "Esse jogador está offline."
-      });
-      return;
-    }
-
-    const inviteId =
-      "teamInvite_" +
-      Date.now() +
-      "_" +
-      Math.random().toString(36).slice(2, 7);
-
-    invites[inviteId] = {
-      id: inviteId,
-      type: "team",
-      teamId,
-      fromId: leader.userId,
-      toId: targetId,
-      createdAt: Date.now()
-    };
-
-    targetSocket.emit("teamInviteReceived", {
-      invite: invites[inviteId],
-      team
-    });
-
-    socket.emit("teamInviteSent", {
-      invite: invites[inviteId]
-    });
-  });
-
-  /* =======================================================
-     ACEITAR / RECUSAR TIME
-  ======================================================= */
-
-  socket.on("teamInviteRespond", data => {
-
-    const player = getProfile(socket);
-
-    if (!player) return;
-
-    const inviteId = cleanText(data?.inviteId, 100);
-    const accepted = !!data?.accepted;
-
-    const invite = invites[inviteId];
-
-    if (!invite) return;
-
-    if (invite.toId !== player.userId) return;
-
-    const team = teams[invite.teamId];
-
     if (!team) {
-      delete invites[inviteId];
+      socket.emit('socialError', { message: 'Esse time não existe mais.' });
       return;
     }
 
-    if (accepted) {
+    invites[p.userId] = (invites[p.userId] || []).filter(i =>
+      !(i.type === 'team' && i.teamId === teamId)
+    );
 
-      if (player.teamId) {
-        socket.emit("teamError", {
-          message: "Você já está em outro time."
-        });
+    if (accept) {
+      const currentTeam = Object.values(teams).find(t => t.members.includes(p.userId));
 
-        delete invites[inviteId];
-        return;
+      if (currentTeam) {
+        socket.emit('socialError', { message: 'Você já está em um time.' });
+      } else if (team.members.length >= 6) {
+        socket.emit('socialError', { message: 'O time está cheio.' });
+      } else {
+        team.members.push(p.userId);
+        p.teamId = teamId;
       }
-
-      if (!team.members.includes(player.userId)) {
-        team.members.push(player.userId);
-      }
-
-      player.teamId = team.id;
-
-      socket.emit("teamJoined", team);
-
-      const leaderSocket =
-        getSocketByUserId(team.leaderId);
-
-      if (leaderSocket) {
-        leaderSocket.emit("teamUpdated", team);
-      }
-
-    } else {
-
-      socket.emit("teamInviteDeclined", {
-        invite
-      });
     }
 
-    delete invites[inviteId];
+    sendSocialState(p.userId);
+    for (const memberId of team.members) sendSocialState(memberId);
+    emitPlayers();
   });
 
-  /* =======================================================
-     PEGAR DADOS DO TIME
-  ======================================================= */
+  socket.on('teamKick', (data = {}) => {
+    const p = players[socket.id];
+    const targetId = safeText(data.userId, 80);
+    if (!p || !targetId || targetId === p.userId) return;
 
-  socket.on("getTeam", () => {
-
-    const profile = getProfile(socket);
-
-    if (!profile || !profile.teamId) {
-      socket.emit("teamData", null);
+    const team = Object.values(teams).find(t => t.members.includes(p.userId));
+    if (!team || team.lider !== p.userId) {
+      socket.emit('socialError', { message: 'Somente o líder pode expulsar membros.' });
       return;
     }
-
-    const team = teams[profile.teamId];
-
-    if (!team) {
-      profile.teamId = null;
-      socket.emit("teamData", null);
-      return;
-    }
-
-    socket.emit("teamData", team);
-  });
-
-  /* =======================================================
-     SAIR DO TIME
-  ======================================================= */
-
-  socket.on("leaveTeam", () => {
-
-    const player = getProfile(socket);
-
-    if (!player || !player.teamId) return;
-
-    const team = teams[player.teamId];
-
-    if (!team) {
-      player.teamId = null;
-      socket.emit("teamData", null);
-      return;
-    }
-
-    if (team.leaderId === player.userId) {
-
-      for (const memberId of team.members) {
-
-        if (profiles[memberId]) {
-          profiles[memberId].teamId = null;
-        }
-
-        const memberSocket =
-          getSocketByUserId(memberId);
-
-        if (memberSocket) {
-          memberSocket.emit("teamDisbanded");
-        }
-      }
-
-      delete teams[team.id];
-
-    } else {
-
-      team.members =
-        team.members.filter(
-          id => id !== player.userId
-        );
-
-      player.teamId = null;
-
-      socket.emit("teamLeft");
-
-      for (const memberId of team.members) {
-
-        const memberSocket =
-          getSocketByUserId(memberId);
-
-        if (memberSocket) {
-          memberSocket.emit("teamUpdated", team);
-        }
-      }
-    }
-
-    broadcastOnlinePlayers();
-  });
-
-  /* =======================================================
-     EXPULSAR MEMBRO
-  ======================================================= */
-
-  socket.on("kickTeamMember", data => {
-
-    const leader = getProfile(socket);
-
-    if (!leader || !leader.teamId) return;
-
-    const team = teams[leader.teamId];
-
-    if (!team) return;
-
-    if (team.leaderId !== leader.userId) return;
-
-    const targetId =
-      cleanText(data?.userId, 80);
-
     if (!team.members.includes(targetId)) return;
 
-    team.members =
-      team.members.filter(id => id !== targetId);
+    team.members = team.members.filter(id => id !== targetId);
+    const targetSocket = getSocketIdByUserId(targetId);
+    if (targetSocket && players[targetSocket]) players[targetSocket].teamId = null;
 
-    if (profiles[targetId]) {
-      profiles[targetId].teamId = null;
+    sendToUser(targetId, 'teamKicked', { teamId: team.id, teamNome: team.nome });
+    sendSocialState(targetId);
+    for (const memberId of team.members) sendSocialState(memberId);
+    emitPlayers();
+  });
+
+  socket.on('leaveTeam', () => {
+    const p = players[socket.id];
+    if (!p) return;
+
+    const team = Object.values(teams).find(t => t.members.includes(p.userId));
+    if (!team) return;
+
+    if (team.lider === p.userId) {
+      // Passa a liderança para outro membro ou encerra o time.
+      const remaining = team.members.filter(id => id !== p.userId);
+
+      if (remaining.length === 0) {
+        delete teams[team.id];
+      } else {
+        team.members = remaining;
+        team.lider = remaining[0];
+      }
+    } else {
+      team.members = team.members.filter(id => id !== p.userId);
     }
 
-    const targetSocket =
-      getSocketByUserId(targetId);
+    p.teamId = null;
 
-    if (targetSocket) {
-      targetSocket.emit("teamKicked");
+    sendSocialState(p.userId);
+    if (teams[team.id]) {
+      for (const memberId of teams[team.id].members) sendSocialState(memberId);
     }
+    emitPlayers();
+  });
 
-    for (const memberId of team.members) {
+  // =========================
+  // CONVITES PARA MODOS
+  // =========================
+  socket.on('gameInvite', (data = {}) => {
+    const p = players[socket.id];
+    const targetId = safeText(data.userId, 80);
+    const mode = safeText(data.mode, 30);
 
-      const memberSocket =
-        getSocketByUserId(memberId);
+    const allowed = ['campaign', 'survival', 'arena1v1', 'arena2v2', 'arena3v3'];
+    if (!p || !targetId || !allowed.includes(mode)) return;
 
-      if (memberSocket) {
-        memberSocket.emit("teamUpdated", team);
+    ensureUserData(targetId);
+
+    const invite = {
+      type: 'game',
+      mode,
+      fromId: p.userId,
+      fromNome: p.nome,
+      createdAt: Date.now()
+    };
+
+    invites[targetId] = invites[targetId] || [];
+    invites[targetId].push(invite);
+
+    sendToUser(targetId, 'gameInviteReceived', invite);
+    sendSocialState(targetId);
+  });
+
+  socket.on('gameInviteRespond', (data = {}) => {
+    const p = players[socket.id];
+    if (!p) return;
+
+    const fromId = safeText(data.fromId, 80);
+    const mode = safeText(data.mode, 30);
+    const accept = !!data.accept;
+
+    if (accept) {
+      const roomId = `room_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+      rooms[roomId] = {
+        id: roomId,
+        mode,
+        host: fromId,
+        players: [fromId, p.userId],
+        maxPlayers: mode === 'arena1v1' ? 2 :
+                    mode === 'arena2v2' ? 4 :
+                    mode === 'arena3v3' ? 6 : 4,
+        status: 'waiting',
+        createdAt: Date.now()
+      };
+
+      for (const userId of rooms[roomId].players) {
+        const sid = getSocketIdByUserId(userId);
+        if (sid) {
+          io.sockets.sockets.get(sid)?.join(roomId);
+          io.to(sid).emit('gameRoomCreated', rooms[roomId]);
+        }
       }
     }
-  });
 
-  /* =======================================================
-     CONVITE PARA COMBATE
-  ======================================================= */
-
-  socket.on("gameInvite", data => {
-
-    const sender = getProfile(socket);
-
-    if (!sender) return;
-
-    const targetId =
-      cleanText(data?.userId, 80);
-
-    const mode =
-      cleanText(data?.mode, 30) || "1v1";
-
-    if (!profiles[targetId]) {
-      socket.emit("gameInviteError", {
-        message: "Jogador não encontrado."
-      });
-      return;
-    }
-
-    const targetSocket =
-      getSocketByUserId(targetId);
-
-    if (!targetSocket) {
-      socket.emit("gameInviteError", {
-        message: "Jogador está offline."
-      });
-      return;
-    }
-
-    const inviteId =
-      "gameInvite_" +
-      Date.now() +
-      "_" +
-      Math.random().toString(36).slice(2, 8);
-
-    invites[inviteId] = {
-      id: inviteId,
-      type: "game",
-      fromId: sender.userId,
-      toId: targetId,
-      mode,
-      createdAt: Date.now()
-    };
-
-    targetSocket.emit("gameInviteReceived", {
-      invite: invites[inviteId],
-      from: publicProfile(sender.userId)
-    });
-
-    socket.emit("gameInviteSent", {
-      invite: invites[inviteId]
-    });
-  });
-
-  /* =======================================================
-     RESPOSTA AO CONVITE DE COMBATE
-  ======================================================= */
-
-  socket.on("gameInviteRespond", data => {
-
-    const player = getProfile(socket);
-
-    if (!player) return;
-
-    const inviteId =
-      cleanText(data?.inviteId, 100);
-
-    const accepted = !!data?.accepted;
-
-    const invite = invites[inviteId];
-
-    if (!invite) return;
-
-    if (invite.toId !== player.userId) return;
-
-    if (!accepted) {
-
-      const senderSocket =
-        getSocketByUserId(invite.fromId);
-
-      if (senderSocket) {
-        senderSocket.emit("gameInviteDeclined", {
-          invite
-        });
-      }
-
-      delete invites[inviteId];
-      return;
-    }
-
-    /* Cria sala automaticamente */
-
-    const roomId =
-      "room_" +
-      Date.now() +
-      "_" +
-      Math.random().toString(36).slice(2, 8);
-
-    rooms[roomId] = {
-      id: roomId,
-      mode: invite.mode,
-      players: [
-        invite.fromId,
-        player.userId
-      ],
-      started: false,
-      createdAt: Date.now()
-    };
-
-    const senderSocket =
-      getSocketByUserId(invite.fromId);
-
-    if (senderSocket) {
-      senderSocket.join(roomId);
-
-      senderSocket.emit("gameRoomCreated", {
-        room: rooms[roomId]
-      });
-    }
-
-    socket.join(roomId);
-
-    socket.emit("gameRoomJoined", {
-      room: rooms[roomId]
-    });
-
-    delete invites[inviteId];
-  });
-
-  /* =======================================================
-     CRIAR SALA MANUAL
-  ======================================================= */
-
-  socket.on("createRoom", data => {
-
-    const player = getProfile(socket);
-
-    if (!player) return;
-
-    const mode =
-      cleanText(data?.mode, 30) || "1v1";
-
-    const roomId =
-      "room_" +
-      Date.now() +
-      "_" +
-      Math.random().toString(36).slice(2, 8);
-
-    rooms[roomId] = {
-      id: roomId,
-      mode,
-      players: [player.userId],
-      started: false,
-      createdAt: Date.now()
-    };
-
-    socket.join(roomId);
-
-    socket.emit("roomCreated", {
-      room: rooms[roomId]
-    });
-  });
-
-  /* =======================================================
-     ENTRAR EM SALA
-  ======================================================= */
-
-  socket.on("joinRoom", data => {
-
-    const player = getProfile(socket);
-
-    if (!player) return;
-
-    const roomId =
-      cleanText(data?.roomId, 100);
-
-    const room = rooms[roomId];
-
-    if (!room) {
-      socket.emit("roomError", {
-        message: "Sala não encontrada."
-      });
-      return;
-    }
-
-    if (room.started) {
-      socket.emit("roomError", {
-        message: "Essa sala já começou."
-      });
-      return;
-    }
-
-    if (!room.players.includes(player.userId)) {
-      room.players.push(player.userId);
-    }
-
-    socket.join(roomId);
-
-    io.to(roomId).emit(
-      "roomUpdated",
-      room
+    invites[p.userId] = (invites[p.userId] || []).filter(i =>
+      !(i.type === 'game' && i.fromId === fromId && i.mode === mode)
     );
+
+    sendSocialState(p.userId);
   });
 
-  /* =======================================================
-     SAIR DA SALA
-  ======================================================= */
+  // =========================
+  // SALAS / X1 / 2v2 / 3v3
+  // =========================
+  socket.on('createRoom', (data = {}) => {
+    const p = players[socket.id];
+    if (!p) return;
 
-  socket.on("leaveRoom", data => {
+    const mode = safeText(data.mode, 30);
+    const allowed = ['arena1v1', 'arena2v2', 'arena3v3', 'campaign', 'survival'];
+    if (!allowed.includes(mode)) return;
 
-    const player = getProfile(socket);
+    const maxPlayers = {
+      arena1v1: 2,
+      arena2v2: 4,
+      arena3v3: 6,
+      campaign: 4,
+      survival: 4
+    }[mode];
 
-    if (!player) return;
+    const roomId = `room_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
-    const roomId =
-      cleanText(data?.roomId, 100);
+    rooms[roomId] = {
+      id: roomId,
+      mode,
+      host: p.userId,
+      players: [p.userId],
+      maxPlayers,
+      status: 'waiting',
+      createdAt: Date.now()
+    };
+
+    socket.join(roomId);
+    socket.emit('gameRoomCreated', rooms[roomId]);
+  });
+
+  socket.on('joinRoom', (data = {}) => {
+    const p = players[socket.id];
+    const roomId = safeText(data.roomId, 100);
+    if (!p || !rooms[roomId]) return;
 
     const room = rooms[roomId];
 
-    if (!room) return;
+    if (room.players.includes(p.userId)) {
+      socket.join(roomId);
+      socket.emit('roomUpdate', room);
+      return;
+    }
 
-    room.players =
-      room.players.filter(
-        id => id !== player.userId
-      );
+    if (room.players.length >= room.maxPlayers) {
+      socket.emit('socialError', { message: 'Essa sala está cheia.' });
+      return;
+    }
 
+    room.players.push(p.userId);
+    socket.join(roomId);
+
+    io.to(roomId).emit('roomUpdate', room);
+
+    if (room.players.length >= room.maxPlayers) {
+      room.status = 'ready';
+      io.to(roomId).emit('roomReady', room);
+    }
+  });
+
+  socket.on('leaveRoom', (data = {}) => {
+    const p = players[socket.id];
+    const roomId = safeText(data.roomId, 100);
+    if (!p || !rooms[roomId]) return;
+
+    const room = rooms[roomId];
+    room.players = room.players.filter(id => id !== p.userId);
     socket.leave(roomId);
 
     if (room.players.length === 0) {
       delete rooms[roomId];
-      return;
+    } else {
+      if (room.host === p.userId) room.host = room.players[0];
+      io.to(roomId).emit('roomUpdate', room);
     }
-
-    io.to(roomId).emit(
-      "roomUpdated",
-      room
-    );
   });
 
-  /* =======================================================
-     INICIAR SALA
-  ======================================================= */
-
-  socket.on("startRoom", data => {
-
-    const player = getProfile(socket);
-
-    if (!player) return;
-
-    const roomId =
-      cleanText(data?.roomId, 100);
+  socket.on('startRoom', (data = {}) => {
+    const p = players[socket.id];
+    const roomId = safeText(data.roomId, 100);
+    if (!p || !rooms[roomId]) return;
 
     const room = rooms[roomId];
+    if (room.host !== p.userId) return;
 
-    if (!room) return;
-
-    if (!room.players.includes(player.userId)) {
-      return;
-    }
-
-    room.started = true;
-
-    io.to(roomId).emit(
-      "roomStarted",
-      room
-    );
+    room.status = 'started';
+    io.to(roomId).emit('gameStart', room);
   });
 
-  /* =======================================================
-     DESCONEXÃO
-  ======================================================= */
+  // =========================
+  // DESCONEXÃO
+  // =========================
+  socket.on('disconnect', () => {
+    const p = players[socket.id];
 
-  socket.on("disconnect", () => {
+    if (p) {
+      console.log('Guerreiro desconectou:', socket.id, p.nome);
 
-    console.log(
-      "🔴 Guerreiro desconectou:",
-      socket.id
-    );
+      removeFromRoom(p.userId);
+      if (profiles[p.userId]) profiles[p.userId].lastSeen = Date.now();
+      delete players[socket.id];
 
-    delete players[socket.id];
-
-    const profile = Object.values(profiles)
-      .find(p => p.socketId === socket.id);
-
-    if (profile) {
-
-      profile.online = false;
-      profile.socketId = null;
-
-      /*
-       * Não apagamos o perfil.
-       * Assim a amizade fica registrada
-       * enquanto o servidor estiver ligado.
-       */
-
-      if (profile.teamId) {
-
-        const team =
-          teams[profile.teamId];
-
-        if (team) {
-
-          team.members =
-            team.members.filter(
-              id => id !== profile.userId
-            );
-
-          if (
-            team.leaderId === profile.userId ||
-            team.members.length === 0
-          ) {
-
-            for (const memberId of team.members) {
-
-              if (profiles[memberId]) {
-                profiles[memberId].teamId = null;
-              }
-
-              const memberSocket =
-                getSocketByUserId(memberId);
-
-              if (memberSocket) {
-                memberSocket.emit("teamDisbanded");
-              }
-            }
-
-            delete teams[team.id];
-
-          } else {
-
-            io.to(team.id).emit(
-              "teamUpdated",
-              team
-            );
-          }
-        }
-
-        profile.teamId = null;
-      }
+      emitPlayers();
+      notifyFriendsOnline(p.userId);
+    } else {
+      console.log('Guerreiro desconectou:', socket.id);
     }
-
-    io.emit(
-      "updatePlayers",
-      players
-    );
-
-    broadcastOnlinePlayers();
   });
 });
-
-/* =========================================================
-   SERVIDOR
-========================================================= */
 
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => {
-  console.log(
-    `⚔️ Servidor Reinos de Aço rodando na porta ${PORT}`
-  );
+  console.log(`Servidor Reinos de Aço rodando na porta ${PORT}`);
 });
