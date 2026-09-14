@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,maximum-scale=1">
+<title>Reinos de Aço - Versão Mágica Premium</title>
+<!-- SCRIPT DO MULTIPLAYER (SOCKET.IO) -->
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:none}
+html,body{width:100%;height:100%;overflow:hidden;background:#0a0a0a;font-family:'Segoe UI',Trebuchet MS,sans-serif;color:#fff;position:fixed}
+#gameCanvas{display:block;width:100%;height:100%;image-rendering:pixelated;image-rendering:crisp-edges}
+.hud{position:fixed;pointer-events:none;z-index:100}
+#topLeft{top:10px;left:10px}
+#topRight{top:10px;right:10px}
+#bottomLeft{bottom:10px;left:10px}
+#bottomRight{bottom:10px;right:10px}
+.bar{width:220px;height:20px;background:rgba(0,0,0,0.7);border:2px solid #4a3a2a;border-radius:5px;overflow:hidden;margin-bottom:5px;position:relative;box-shadow:0 2px 4px rgba(0,0,0,0.5)}
+.bar .fill{height:100%;transition:width 0.3s ease-out}
+.bar .label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;text-shadow:2px 2px 0 #000,0 0 8px rgba(0,0,0,0.8);letter-spacing:0.5px}
+.hp .fill{background:linear-gradient(90deg,#8b0000,#dc143c,#ff4444)}
+.mp .fill{background:linear-gradient(90deg,#00008b,#4169e1,#4444ff)}
+.xp .fill{background:linear-gradient(90deg,#b8860b,#daa520,#ffd700)}
+.stamina .fill{background:linear-gradient(90deg,#228b22,#32cd32,#44ff44)}
+#stats{background:rgba(0,0,0,0.75);padding:8px 12px;border:2px solid #4a3a2a;border-radius:6px;font-size:13px;line-height:1.6;box-shadow:0 3px 6px rgba(0,0,0,0.5);backdrop-filter:blur(4px)}
+#stats b{color:#ffd700;text-shadow:0 0 4px rgba(255,215,0,0.5)}
+#minimap{width:160px;height:160px;background:rgba(0,0,0,0.8);border:3px solid #4a3a2a;border-radius:6px;box-shadow:0 3px 8px rgba(0,0,0,0.6)}
+#weaponDisplay{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);border:2px solid #4a3a2a;border-radius:10px;padding:8px 20px;font-size:14px;z-index:100;box-shadow:0 4px 8px rgba(0,0,0,0.5);display:flex;align-items:center;gap:8px}
+#weaponDisplay .name{color:#ffd700;font-weight:bold;text-shadow:0 0 8px rgba(255,215,0,0.4)}
+#weaponDisplay .icon{font-size:20px}
+#joystick{position:fixed;bottom:40px;left:40px;width:150px;height:150px;background:rgba(0,0,0,0.3);border:4px solid rgba(255,255,255,0.3);border-radius:50%;z-index:200;display:none;touch-action:none}
+#stick{position:absolute;top:50%;left:50%;width:60px;height:60px;margin:-30px 0 0 -30px;background:rgba(255,255,255,0.5);border-radius:50%;border:3px solid #fff;box-shadow:0 4px 8px rgba(0,0,0,0.4)}
+#actionBtns{position:fixed;bottom:40px;right:40px;z-index:200;display:none;touch-action:none}
+.actionBtn{width:75px;height:75px;border-radius:50%;background:rgba(200,50,50,0.8);border:4px solid #fff;color:#fff;font-weight:bold;font-size:16px;margin:5px;pointer-events:auto;display:inline-flex;align-items:center;justify-content:center;text-shadow:2px 2px 0 #000;box-shadow:0 4px 8px rgba(0,0,0,0.4);transition:transform 0.1s}
+.actionBtn:active{transform:scale(0.95)}
+.actionBtn.atk{background:rgba(220,50,50,0.9)}
+.actionBtn.dodge{background:rgba(50,150,200,0.9);width:65px;height:65px}
+.actionBtn.run{background:rgba(200,150,50,0.9);width:65px;height:65px}
+.actionBtn.skill{background:rgba(150,50,200,0.9);width:65px;height:65px}
+.menu{position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:1000;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px;overflow:auto}
+.menu h1{font-size:56px;color:#ffd700;text-shadow:4px 4px 0 #8b4513,0 0 20px rgba(255,215,0,0.5);margin-bottom:15px;letter-spacing:3px;text-align:center}
+.menu h2{font-size:32px;color:#ffd700;margin:15px 0;text-shadow:2px 2px 0 #000}
+.menu button{background:linear-gradient(180deg,#8b4513,#654321);color:#fff;border:3px solid #ffd700;padding:14px 35px;font-size:19px;font-weight:bold;margin:6px;border-radius:8px;cursor:pointer;font-family:inherit;min-width:250px;box-shadow:0 4px 8px rgba(0,0,0,0.4);transition:all 0.2s;text-shadow:1px 1px 0 #000}
+.menu button:hover{background:linear-gradient(180deg,#a0522d,#8b4513);transform:translateY(-2px);box-shadow:0 6px 12px rgba(0,0,0,0.5)}
+.menu .row{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:12px 0;max-width:700px}
+.menu .small{font-size:13px;padding:10px 18px;min-width:160px}
+.hidden{display:none!important}
+.damageNumber{position:fixed;font-weight:bold;pointer-events:none;z-index:300;text-shadow:2px 2px 0 #000,0 0 10px currentColor;animation:floatUp 1s forwards;font-size:20px}
+@keyframes floatUp{0%{transform:translateY(0) scale(1);opacity:1}50%{transform:translateY(-30px) scale(1.2)}100%{transform:translateY(-60px) scale(1);opacity:0}}
+#bossHealth{position:fixed;top:70px;left:50%;transform:translateX(-50%);width:65%;max-width:600px;z-index:150;display:none}
+#bossHealth .name{text-align:center;font-weight:bold;color:#ff4444;text-shadow:2px 2px 0 #000,0 0 10px rgba(255,68,68,0.6);margin-bottom:6px;font-size:16px}
+#toast{position:fixed;top:25%;left:50%;transform:translateX(-50%);z-index:600;pointer-events:none;text-align:center}
+.toastMsg{background:rgba(0,0,0,0.9);padding:12px 24px;margin:5px;border-radius:6px;border-left:5px solid #ffd700;animation:slideIn 0.3s;font-weight:bold;text-shadow:1px 1px 0 #000;box-shadow:0 4px 8px rgba(0,0,0,0.5)}
+@keyframes slideIn{from{transform:translateY(-20px);opacity:0}to{transform:translateY(0);opacity:1}}
+#questLog{position:fixed;bottom:100px;left:10px;background:rgba(0,0,0,0.8);padding:10px 14px;border:2px solid #4a3a2a;border-radius:6px;font-size:12px;max-width:240px;z-index:100;box-shadow:0 3px 6px rgba(0,0,0,0.5)}
+
+/* SISTEMA PREMIUM E PAINEIS */
+.panel{position:fixed;inset:0;background:rgba(0,0,0,0.98);z-index:500;display:none;padding:30px;overflow:auto}
+.panel h2{color:#ffd700;margin-bottom:15px;text-shadow:2px 2px 0 #000}
+.panel h3{color:#ccc;margin:15px 0 8px 0;font-size:16px; border-bottom:1px solid #444; padding-bottom:5px;}
+#lobbyHeader{background:rgba(20,20,20,0.85);padding:10px 25px;border-radius:10px;border:2px solid #ffd700;font-size:18px;font-weight:bold;display:flex;gap:25px;margin-bottom:25px;box-shadow:0 4px 10px rgba(0,0,0,0.6); align-items: center; justify-content: center;}
+.shopItem{display:flex;justify-content:space-between;align-items:center;background:rgba(40,40,60,0.85);padding:12px 18px;border-radius:8px;border:2px solid #4169e1;margin-bottom:10px}
+.questCard{background:rgba(60,40,25,0.85);padding:15px;border-radius:8px;border:2px solid #b8860b;margin-bottom:12px}
+.invGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:10px;margin-bottom:25px}
+.invSlot{aspect-ratio:1;background:rgba(60,40,25,0.8);border:3px solid #4a3a2a;border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:11px;cursor:pointer;padding:6px;text-align:center;transition:all 0.2s;box-shadow:0 2px 4px rgba(0,0,0,0.4)}
+.invSlot:hover{border-color:#ffd700;transform:translateY(-2px);box-shadow:0 4px 8px rgba(0,0,0,0.5)}
+.invSlot .icon{font-size:28px;margin-bottom:4px}
+.invSlot.equipped{border-color:#ffd700;background:rgba(120,80,30,0.9);box-shadow:0 0 12px rgba(255,215,0,0.3)}
+.closeBtn{position:fixed;top:15px;right:15px;background:#8b0000;border:none;color:#fff;padding:10px 18px;border-radius:6px;cursor:pointer;font-size:18px;box-shadow:0 3px 6px rgba(0,0,0,0.4)}
+
+.classBtn{background:rgba(40,40,40,0.9);border:2px solid #555;padding:20px;border-radius:10px;cursor:pointer;margin:10px;min-width:220px;text-align:center;transition:all 0.2s}
+.classBtn:hover{border-color:#ffd700;transform:scale(1.05);background:rgba(60,60,60,0.9)}
+.roulette-box{font-size:65px;background:#111;border:5px solid #ffd700;border-radius:15px;padding:40px;width:320px;margin:30px auto;text-shadow:0 0 20px #ffd700; box-shadow: 0 0 30px rgba(255,215,0,0.5);}
+
+/* ESTILOS DO CHAT MULTIPLAYER */
+#chatContainer{position:fixed; bottom:130px; left:10px; width:300px; height:200px; display:flex; flex-direction:column; z-index:150; pointer-events:auto; background:rgba(0,0,0,0.6); border:2px solid #4a3a2a; border-radius:8px; padding:8px;}
+#chatMessages{flex:1; overflow-y:auto; font-size:13px; color:#fff; margin-bottom:8px; text-shadow:1px 1px 0 #000; padding-right:5px;}
+#chatMessages::-webkit-scrollbar { width: 5px; }
+#chatMessages::-webkit-scrollbar-thumb { background: #ffd700; border-radius: 5px; }
+.chat-input-area{display:flex; gap:5px;}
+.chat-input-area input{flex:1; padding:6px; border-radius:4px; border:none; outline:none; background:rgba(255,255,255,0.9); color:#000; font-weight:bold;}
+.chat-input-area button{padding:6px 12px; border:none; background:#228b22; color:#fff; font-weight:bold; cursor:pointer; border-radius:4px;}
+
+@media (max-width:850px),(hover:none){
+  #joystick,#actionBtns{display:block}
+  .bar{width:150px;height:16px}
+  #stats{font-size:11px;padding:6px 10px}
+  #minimap{width:110px;height:110px}
+  .menu h1{font-size:36px}
+  .menu button{min-width:200px;padding:12px 24px}
+  #chatContainer{width:250px; height:150px; bottom:100px;}
+}
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+
+<div id="topLeft" class="hud">
+  <div class="bar hp"><div class="fill" id="hpFill"></div><div class="label" id="hpLabel">100/100</div></div>
+  <div class="bar mp"><div class="fill" id="mpFill"></div><div class="label" id="mpLabel">50/50</div></div>
+  <div class="bar xp"><div class="fill" id="xpFill"></div><div class="label" id="xpLabel">Nível 1 - 0/100</div></div>
+  <div class="bar stamina"><div class="fill" id="stFill" style="width:100%"></div><div class="label">Stamina</div></div>
+  <div id="stats">
+    <div>⚔️ Dano: <b id="statDmg">10</b> | 🛡️ Def: <b id="statDef">2</b></div>
+    <div>⚡ Spd: <b id="statSpd">100</b></div>
+    <div style="margin-top:2px; border-top:1px solid #444; padding-top:2px">🎩 <span id="statHat">Nenhum</span> | 🧣 <span id="statCape">Nenhuma</span></div>
+    <div style="color:#00ffff; margin-top:2px; border-top:1px solid #444; padding-top:2px;">💎 Dimas: <b id="statDiamonds" style="color:#00ffff">0</b></div>
+  </div>
+</div>
+<div id="topRight" class="hud"><canvas id="minimap" width="160" height="160"></canvas></div>
+
+<div id="bossHealth"><div class="name" id="bossName"></div><div class="bar hp" style="width:100%"><div class="fill" id="bossFill"></div></div></div>
+<div id="weaponDisplay">🗡️ <span class="name" id="wName">Espada de Ferro</span> <span id="wIcon" class="icon">🗡️</span></div>
+
+<!-- CAIXA DE CHAT MULTIPLAYER -->
+<div id="chatContainer" class="hidden">
+  <div id="chatMessages"></div>
+  <div class="chat-input-area">
+    <input type="text" id="chatInput" placeholder="Falar no Global...">
+    <button onclick="sendChatMessage()">Enviar</button>
+  </div>
+</div>
+
+<div id="bottomRight" class="hud">
+  <div id="msgLog" style="background:rgba(0,0,0,0.8);padding:8px 12px;border:2px solid #4a3a2a;border-radius:6px;font-size:12px;max-width:220px;text-align:right;box-shadow:0 3px 6px rgba(0,0,0,0.5)"></div>
+</div>
+
+<div id="joystick"><div id="stick"></div></div>
+<div id="actionBtns">
+  <div style="display:flex;flex-direction:column;align-items:flex-end">
+    <div style="display:flex"><div class="actionBtn skill" data-action="skill">HAB</div></div>
+    <div style="display:flex;margin-top:5px"><div class="actionBtn run" data-action="run">🏃</div><div class="actionBtn dodge" data-action="dodge">↺</div><div class="actionBtn atk" data-action="attack">⚔️</div></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<!-- ESCOLHA DE CLASSE -->
+<div class="menu hidden" id="classMenu" style="z-index:2000;">
+  <h1>⚔️ Escolha sua Classe</h1>
+  <p style="color:#aaa;margin-bottom:20px;">Cada classe possui atributos, armas e habilidades únicas. Escolha com sabedoria!</p>
+  <div style="display:flex;flex-wrap:wrap;justify-content:center;max-width:900px;">
+    <div class="classBtn" onclick="selectClass('guerreiro')"><h2 style="color:#ff4444; margin:0">Guerreiro 🗡️</h2><p style="color:#ccc;margin-top:10px">Alto HP e Defesa.<br>Arma: Espada de Ferro</p></div>
+    <div class="classBtn" onclick="selectClass('mago')"><h2 style="color:#4444ff; margin:0">Mago 🪄</h2><p style="color:#ccc;margin-top:10px">Magia e Dano em Área.<br>Arma: Cajado Arcano</p></div>
+    <div class="classBtn" onclick="selectClass('arqueiro')"><h2 style="color:#44ff44; margin:0">Arqueiro 🏹</h2><p style="color:#ccc;margin-top:10px">Ataque à distância rápido.<br>Arma: Arco Longo</p></div>
+    <div class="classBtn" onclick="selectClass('duelista')"><h2 style="color:#ffd700; margin:0">Duelista 🗡️🗡️</h2><p style="color:#ccc;margin-top:10px">Esquiva e Velocidade.<br>Arma: Adaga das Sombras</p></div>
+  </div>
+</div>
+
+<!-- ROLETA -->
+<div class="menu hidden" id="roulettePanel" style="z-index:2500; background:rgba(0,0,0,0.98);">
+  <h1 style="color:#00ffff; text-shadow:0 0 20px #00ffff;">🎰 ROLETA DO CHEFÃO 🎰</h1>
+  <p style="font-size:20px; color:#ccc;">Você derrotou o Boss! Gire a roleta.<br>Você tem a chance de ganhar até 1500 Diamantes!</p>
+  <div id="rouletteDisplay" class="roulette-box">❓</div>
+  <button id="spinBtn" onclick="spinRoulette()" style="background:#228b22; font-size:24px; padding:15px 40px; margin-top:20px;">GIRAR ROLETA!</button>
+  <button id="closeRouletteBtn" onclick="closeRoulette()" style="display:none; background:#800080; margin-top:20px;">Continuar a Jornada</button>
+</div>
+
+<!-- LOBBY PRINCIPAL -->
+<div class="menu hidden" id="mainMenu">
+  <div id="lobbyHeader">
+    <span style="color:#ffd700">💰 Ouro: <span id="lobbyGold">0</span></span>
+    <span style="color:#00ffff">💎 Dimas: <span id="lobbyDiamonds">0</span></span>
+  </div>
+  <h1>⚔️ REINOS DE AÇO ⚔️</h1>
+  <p style="color:#44ff44; font-weight:bold; margin-top:-10px; margin-bottom:15px;">🟢 MULTIPLAYER ONLINE</p>
+  
+  <div class="row">
+    <button onclick="startGame('campaign')">📜 Campanha Co-op</button>
+    <button onclick="startGame('survival')">💀 Sobrevivência</button>
+    <button onclick="startGame('boss')">👑 Caça ao Chefe</button>
+  </div>
+  
+  <div class="row" style="margin-top:20px;">
+    <button onclick="openPanel('inventory')" style="background:linear-gradient(180deg,#2f4f4f,#1a1a1a)">🎒 Inventário / Status</button>
+    <button onclick="openPanel('quests')" style="background:linear-gradient(180deg,#b8860b,#8b6508); border-color:#ffd700">📜 Missões</button>
+    <button onclick="openPanel('shop')" style="background:linear-gradient(180deg,#800080,#4b0082); border-color:#cc44ff">🛒 Loja 3D/5D</button>
+  </div>
+  
+  <div class="row" style="margin-top:10px;">
+    <button class="small" onclick="comprarDiamantes()" style="background:linear-gradient(180deg,#00008b,#4169e1); border-color:#00ffff; color:#00ffff;">💎 Comprar Dimas</button>
+    <button class="small" onclick="resgatarCodigo()" style="background:linear-gradient(180deg,#228b22,#006400); border-color:#44ff44; color:#44ff44;">🎁 Resgatar Código</button>
+    <button class="small" onclick="resetSave()" style="background:linear-gradient(180deg,#555,#333)">🗑️ Apagar Save</button>
+  </div>
+</div>
+
+<div class="menu hidden" id="deathMenu"><h1 style="color:#ff4444">💀 Você Morreu 💀</h1><button onclick="location.reload()">🔄 Reviver</button></div>
+<div class="menu hidden" id="winMenu"><h1 style="color:#ffd700">🏆 Vitória! </h1><button onclick="location.reload()">🔄 Continuar</button></div>
+
+<!-- PAINEIS (Inventário, Loja e Quests) -->
+<div class="panel" id="inventory"><button class="closeBtn" onclick="closePanel('inventory')">✕ Fechar</button><h2>🎒 Inventário & Equipamentos</h2><div style="display:flex; gap:10px; margin-bottom:20px;"><div style="background:#222; padding:10px; border-radius:5px; border:1px solid #555; flex:1"><b>🎩 Chapéu:</b> <span id="eqHat" style="color:#ffaa00">Nenhum</span></div><div style="background:#222; padding:10px; border-radius:5px; border:1px solid #555; flex:1"><b>🧣 Capa:</b> <span id="eqCape" style="color:#ffaa00">Nenhuma</span></div><div style="background:#222; padding:10px; border-radius:5px; border:1px solid #555; flex:1"><b>💥 Skill:</b> <span id="eqSkill" style="color:#ff4444">Nenhuma</span></div></div><h3>⚔️ Armas</h3><div class="invGrid" id="invWeapons"></div><h3>🎩 Chapéus</h3><div class="invGrid" id="invHats"></div><h3>🧣 Capas</h3><div class="invGrid" id="invCapes"></div><h3>💥 Habilidades</h3><div class="invGrid" id="invSkills"></div><h3>📊 Atributos <small style="color:#888">(pontos grátis: <span id="attrPoints">0</span>)</small></h3><p style="font-size:12px; color:#aaa; margin-bottom:10px;">Use seus pontos de nível ou compre 1 Ponto por 5 Diamantes.</p><div id="attributes"></div></div>
+<div class="panel" id="shop"><button class="closeBtn" onclick="closePanel('shop')">✕ Fechar</button><h2 style="color:#cc44ff; text-shadow:0 0 10px #cc44ff;">🛒 Loja de Diamantes</h2><h3>⚡ Boosters e Ouro</h3><div class="shopItem"><div><b>Poção de XP Duplo (1h)</b></div><button onclick="buyBoost('xp', 50)" style="background:#228b22; color:#fff; font-weight:bold; cursor:pointer;">💎 50</button></div><div class="shopItem"><div><b>Saco de Ouro (500 moedas)</b></div><button onclick="buyGold(500, 30)" style="background:#228b22; color:#fff; font-weight:bold; cursor:pointer;">💎 30</button></div><h3>🎩 Chapéus (Aumentam HP e Defesa)</h3><div id="shopHats"></div><h3>🧣 Capas (Aumentam Força e Velocidade)</h3><div id="shopCapes"></div><h3>💥 Skills Explosivas</h3><div id="shopSkills"></div><h3>🗡️ Armas 3D/5D</h3><div id="shopWeapons"></div></div>
+<div class="panel" id="quests"><button class="closeBtn" onclick="closePanel('quests')">✕ Fechar</button><h2 style="color:#ffd700">📜 Missões Diárias</h2><div id="questContainer"></div></div>
+
+<script>
+// ==================== CORE SYSTEM & ENGINE ====================
+const canvas=document.getElementById('gameCanvas'),ctx=canvas.getContext('2d');
+const minimap=document.getElementById('minimap'),mmx=minimap.getContext('2d');
+let W=0,H=0,DPR=Math.min(window.devicePixelRatio||1,2);
+
+function resize(){W=window.innerWidth;H=window.innerHeight;canvas.width=W*DPR;canvas.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0);}
+window.addEventListener('resize',resize); resize();
+
+// ==================== SERVIDOR MULTIPLAYER (A MÁGICA ACONTECE AQUI) ====================
+const socket = io('https://reinos-de-aco-server.onrender.com'); // SEU SERVIDOR NO RENDER
+let otherPlayers = {};
+
+socket.on('connect', () => {
+    console.log('Conectado ao Servidor Global!');
+});
+
+socket.on('updatePlayers', (playersData) => {
+    otherPlayers = playersData;
+});
+
+// Recebendo mensagens no chat
+socket.on('chatMessage', (data) => {
+    const chat = document.getElementById('chatMessages');
+    const msgDiv = document.createElement('div');
+    msgDiv.innerHTML = `<b style="color:${data.id===socket.id ? '#44ff44' : '#ffd700'}">[${data.classe.toUpperCase()}]</b>: ${data.text}`;
+    chat.appendChild(msgDiv);
+    chat.scrollTop = chat.scrollHeight; // Rola pro final
+});
+
+function sendChatMessage() {
+    const input = document.getElementById('chatInput');
+    if(input.value.trim() !== '') {
+        let minhaClasse = saveData.playerClass || 'Guerreiro';
+        socket.emit('chatMessage', { classe: minhaClasse, text: input.value });
+        input.value = '';
+    }
+}
+
+// ==================== DATABASES RPG ====================
+const CLASSES = { guerreiro: {name:'Guerreiro', hp:150, spd:100, str:12, def:5, weapon:'espada_ferro', skill:'furia'}, mago: {name:'Mago', hp:90, spd:95, str:4, def:2, weapon:'cajado_arcano', skill:'explosao_magica'}, arqueiro: {name:'Arqueiro', hp:100, spd:120, str:8, def:3, weapon:'arco_longo', skill:'furia'}, duelista: {name:'Duelista', hp:110, spd:130, str:9, def:3, weapon:'adaga_sombra', skill:'corte_rapido'} };
+const WEAPONS={ espada_ferro:{name:'Espada de Ferro',icon:'🗡️',damage:10,speed:1.2,range:55,type:'melee',color:'#c0c0c0',swingColor:'#e8e8e8'}, machado_guerra:{name:'Machado de Guerra',icon:'🪓',damage:18,speed:0.8,range:60,type:'melee',color:'#8b4513',swingColor:'#daa520',effect:'bleed'}, cajado_arcano:{name:'Cajado Arcano',icon:'🪄',damage:22,speed:0.9,range:320,type:'ranged',color:'#9932cc',projectileSpeed:480,swingColor:'#e0b0ff',effect:'freeze'}, arco_longo:{name:'Arco Longo',icon:'🏹',damage:12,speed:1.0,range:350,type:'ranged',color:'#8b4513',projectileSpeed:550,swingColor:'#daa520'}, adaga_sombra:{name:'Adaga das Sombras',icon:'🗡️',damage:16,speed:1.8,range:45,type:'melee',color:'#4b0082',swingColor:'#9370db',effect:'poison'}, espada_fogo_3d:{name:'Montante Infernal 3D',icon:'🔥',damage:55,speed:1.3,range:80,type:'melee',color:'#ff4500',swingColor:'#ff8c00',effect:'burn',priceD:200}, foice_gelo_5d:{name:'Foice Congelante 5D',icon:'❄️',damage:45,speed:1.1,range:95,type:'melee',color:'#00ced1',swingColor:'#87cefa',effect:'freeze',priceD:250} };
+const HATS = { capuz_ninja: {name:'Capuz Ninja', icon:'🥷', hp:20, def:1, priceG:1000, priceD:10}, elmo_ferro: {name:'Elmo de Ferro', icon:'🪖', hp:50, def:4, priceG:3000, priceD:30}, coroa_rei: {name:'Coroa Real', icon:'👑', hp:100, def:8, str:3, priceG:8000, priceD:80} };
+const CAPES = { capa_tecido: {name:'Capa de Tecido', icon:'🧣', hp:10, spd:10, priceG:800, priceD:8}, capa_heroi: {name:'Capa de Herói', icon:'🦸', hp:40, spd:20, str:3, priceG:4000, priceD:40}, capa_sombra: {name:'Capa das Sombras', icon:'🦇', hp:80, spd:35, str:6, priceG:10000, priceD:100} };
+const SKILLS = { furia: {name:'Fúria (Buff)', icon:'💢', type:'buff', cd:12, priceG:0, priceD:0}, explosao_magica: {name:'Explosão Mágica', icon:'💥', type:'aoe', cd:6, priceG:0, priceD:0}, corte_rapido: {name:'Corte Rápido', icon:'💨', type:'dash', cd:4, priceG:0, priceD:0}, meteoro_3d: {name:'Meteoro 3D', icon:'☄️', type:'aoe_heavy', cd:10, priceG:6000, priceD:60} };
+const ENEMY_TYPES={ barbaro:{name:'Bárbaro',hp:45,damage:9,speed:85,range:50,xp:25,gold:12,color:'#8b0000',size:22,ai:'melee'}, arqueiro:{name:'Arqueiro',hp:30,damage:11,speed:70,range:280,xp:30,gold:15,color:'#228b22',size:20,ai:'ranged',projectileSpeed:380}, orc:{name:'Orc Guerreiro',hp:80,damage:16,speed:80,range:55,xp:45,gold:22,color:'#556b2f',size:26,ai:'melee'} };
+const BOSSES={ rei_barbaro:{name:'Rei Bárbaro',hp:600,damage:28,speed:95,range:75,xp:400,gold:300,color:'#dc143c',size:48,ai:'boss_melee',phases:2}, dragao_ancestral:{name:'Dragão Ancestral',hp:1000,damage:38,speed:75,range:350,xp:650,gold:550,color:'#ff4500',size:58,ai:'boss_ranged',phases:3,effect:'burn'} };
+const MAPS={ floresta:{name:'Floresta Sombria',bg:'#1a3a1a',ground:'#2d5a2d',trees:0.18,rocks:0.06}, castelo:{name:'Castelo em Ruínas',bg:'#3a3a4a',ground:'#4a4a5a',trees:0.02,rocks:0.18}, vulcao:{name:'Coração do Vulcão',bg:'#2a0a0a',ground:'#3a1a1a',trees:0,rocks:0.18} };
+
+// ==================== GAME STATE & SAVE ====================
+let game={ mode:'campaign', map:'floresta', mapIndex:0, player:null, enemies:[], projectiles:[], particles:[], damageNumbers:[], magicEffects:[], camera:{x:1400,y:1400,zoom:1,rotation:0}, world:{width:2800,height:2800,obstacles:[],waters:[],mapKey:'floresta',theme:MAPS.floresta}, time:0, paused:false, stats:{kills:0,damageDealt:0,goldCollected:0,timePlayed:0}, wave:0, boss:null, campaignMaps:['floresta','castelo','vulcao'] };
+let saveData=loadSave();
+function loadSave(){ try{ const saved=JSON.parse(localStorage.getItem('reinosDeAcoSaveV3')); if(saved)return saved; }catch(e){} return{ playerClass:null, gold:0, diamantes:0, codigosUsados:[], activeQuest:null, questProgress:0, questTarget:0, questReward:0, questName:'', xp:0, level:1, attributePoints:0, attributes:{strength:0,defense:0,vitality:0,agility:0}, weapons:[], equippedWeapon:null, hats:[], equippedHat:null, capes:[], equippedCape:null, skills:[], equippedSkill:null, totalKills:0, bossesDefeated:[] }; }
+function saveGame(){ try{ localStorage.setItem('reinosDeAcoSaveV3',JSON.stringify(saveData)); updateLobby(); }catch(e){} }
+function updateLobby(){ const g = document.getElementById('lobbyGold'); const d = document.getElementById('lobbyDiamonds'); if(g) g.textContent = saveData.gold; if(d) d.textContent = saveData.diamantes || 0; }
+function resetSave(){ if(confirm('⚠️ Apagar progresso?')){ localStorage.removeItem('reinosDeAcoSaveV3'); location.reload(); } }
+
+// INITIALIZE CLASS OR LOBBY
+function initApp(){ if(!saveData.playerClass) { document.getElementById('mainMenu').classList.add('hidden'); document.getElementById('classMenu').classList.remove('hidden'); } else { document.getElementById('classMenu').classList.add('hidden'); document.getElementById('mainMenu').classList.remove('hidden'); updateLobby(); } }
+function selectClass(c){ saveData.playerClass = c; let cls = CLASSES[c]; saveData.weapons = [cls.weapon]; saveData.equippedWeapon = cls.weapon; saveData.skills = [cls.skill]; saveData.equippedSkill = cls.skill; saveGame(); initApp(); }
+
+// ==================== STORE & CODES ====================
+function comprarDiamantes(){ window.open(`https://wa.me/5544998415441?text=Quero%20fazer%20recarga%20de%20diamantes!`, '_blank'); }
+function resgatarCodigo(){ let codigo = prompt("Digite o código:"); if(!codigo) return; let partes = codigo.split('-'); if(partes[0] === 'DIMA') { let dimas = parseInt(partes[2], 16) / 83; if(Number.isInteger(dimas)) { saveData.diamantes = (saveData.diamantes || 0) + dimas; saveGame(); alert(`Sucesso! +${dimas} Diamantes`); updateLobby(); return; } } alert("Código Inválido!"); }
+function buyBoost(type, price){ if((saveData.diamantes||0) >= price){ saveData.diamantes -= price; saveGame(); alert("Boost ativado!"); } else alert("Diamantes insuficientes!"); }
+function buyGold(amt, price){ if((saveData.diamantes||0) >= price){ saveData.diamantes -= price; saveData.gold += amt; saveGame(); alert(`+${amt} Ouro!`); } else alert("Diamantes insuficientes!"); }
+function buyItem(type, key, priceG, priceD, useDima) { let arr = type==='hat'?saveData.hats : type==='cape'?saveData.capes : type==='weapon'?saveData.weapons : saveData.skills; if(arr.includes(key)) { alert("Você já possui este item!"); return; } if(useDima) { if(saveData.diamantes >= priceD) { saveData.diamantes-=priceD; arr.push(key); saveGame(); alert("Comprado!"); } else alert("Diamantes insuficientes!"); } else { if(saveData.gold >= priceG && priceG > 0) { saveData.gold-=priceG; arr.push(key); saveGame(); alert("Comprado!"); } else alert("Ouro insuficiente!"); } renderShop(); }
+function renderQuests(){ let c = document.getElementById('questContainer'); if(!saveData.activeQuest){ let pool = [ {name:'Caçar Orcs', target:'orc', count: 25, reward: 350} ]; let q = pool[0]; saveData.activeQuest = q.target; saveData.questName = q.name; saveData.questProgress = 0; saveData.questTarget = q.count; saveData.questReward = q.reward; saveGame(); } let pct = Math.min(100, Math.floor((saveData.questProgress / saveData.questTarget)*100)); c.innerHTML = `<div class="questCard"><h3 style="color:#ffd700">${saveData.questName}</h3><p>Progresso: ${saveData.questProgress} / ${saveData.questTarget}</p><div style="background:#222; height:15px; border-radius:5px; margin:10px 0;"><div style="background:#ffd700; width:${pct}%; height:100%"></div></div><p style="color:#ffd700;">Recompensa: 💰 ${saveData.questReward}</p>${saveData.questProgress >= saveData.questTarget ? '<button onclick="claimQuestReward()" style="background:#228b22; color:#fff; padding:10px; width:100%; border-radius:5px;">Resgatar</button>' : ''}</div>`; }
+function claimQuestReward(){ saveData.gold += saveData.questReward; saveData.activeQuest = null; saveGame(); alert("Resgatado!"); renderQuests(); }
+
+// ==================== CONTROLS ====================
+const keys={},touchActions={attack:false,dodge:false,run:false,skill:false};
+window.addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true;}); window.addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+const joystick=document.getElementById('joystick'),stick=document.getElementById('stick'); let joyVec={x:0,y:0},joyActive=false,joyId=null,joyCenter={x:0,y:0};
+joystick.addEventListener('touchstart',e=>{ e.preventDefault(); const touch=e.changedTouches[0]; joyId=touch.identifier; joyActive=true; const rect=joystick.getBoundingClientRect(); joyCenter={x:rect.left+rect.width/2,y:rect.top+rect.height/2}; updateJoystick(touch); }, {passive:false});
+joystick.addEventListener('touchmove',e=>{ e.preventDefault(); for(const touch of e.changedTouches){ if(touch.identifier===joyId)updateJoystick(touch); } }, {passive:false});
+joystick.addEventListener('touchend',e=>{ for(const touch of e.changedTouches){ if(touch.identifier===joyId){ joyActive=false; joyVec={x:0,y:0}; stick.style.transform='translate(0,0)'; } } });
+function updateJoystick(touch){ let dx=touch.clientX-joyCenter.x; let dy=touch.clientY-joyCenter.y; const distance=Math.hypot(dx,dy); const maxDist=55; if(distance>maxDist){ dx=(dx/distance)*maxDist; dy=(dy/distance)*maxDist; } joyVec={x:dx/maxDist,y:dy/maxDist}; stick.style.transform=`translate(${dx}px,${dy}px)`; }
+document.querySelectorAll('.actionBtn').forEach(btn=>{ const action=btn.dataset.action; const start=e=>{e.preventDefault();touchActions[action]=true}; const end=e=>{e.preventDefault();touchActions[action]=false}; btn.addEventListener('touchstart',start,{passive:false}); btn.addEventListener('touchend',end); });
+
+// ==================== ENTITIES ====================
+class Entity{
+  constructor(x,y){ this.x=x; this.y=y; this.vx=0; this.vy=0; this.radius=20; this.hp=100; this.maxHp=100; this.alive=true; this.facing=0; this.flashTime=0; this.statusEffects={}; this.time=0; }  
+  update(dt){ this.time+=dt; this.flashTime=Math.max(0,this.flashTime-dt); }
+  takeDamage(amount){ if(!this.alive)return 0; const isCrit=Math.random()<0.15; let damage=Math.max(1,Math.round((amount-(this.defense||0))*(isCrit?2:1))); this.hp-=damage; this.flashTime=0.2; spawnDamageNumber(this.x,this.y-this.radius,damage,isCrit?'#ffd700':'#ffffff',isCrit); if(this.hp<=0){ this.hp=0; this.die(); return damage; } return damage; }
+  die(){ this.alive=false; }
+  applyKnockback(angle,force){ this.x+=Math.cos(angle)*force*0.1; this.y+=Math.sin(angle)*force*0.1; }
+}
+
+class Player extends Entity{
+  constructor(x,y){
+    super(x,y); this.radius=18; this.mp=60; this.maxMp=60; this.xp=saveData.xp; this.level=saveData.level; this.xpToNext=100*Math.pow(1.2,this.level-1);
+    this.attackCooldown=0; this.attackCharge=0; this.isCharging=false; this.dodgeCooldown=0; this.isDodging=0; this.stamina=100; this.isRunning=false; this.skillCooldown=0;
+    this.recalculateStats(); this.hp=this.maxHp;
+  }
+  recalculateStats(){
+    const cls = CLASSES[saveData.playerClass] || CLASSES.guerreiro; const hat = HATS[saveData.equippedHat] || {}; const cape = CAPES[saveData.equippedCape] || {};
+    this.strength = cls.str + saveData.attributes.strength*3 + (hat.str||0) + (cape.str||0); this.defense = cls.def + saveData.attributes.defense*2 + (hat.def||0) + (cape.def||0); this.speed = cls.spd + saveData.attributes.agility*8 + (cape.spd||0); this.maxHp = cls.hp + saveData.attributes.vitality*20 + (hat.hp||0) + (cape.hp||0);
+    this.weapon = WEAPONS[saveData.equippedWeapon] || WEAPONS.espada_ferro; this.damage=this.strength+this.weapon.damage; this.attackSpeed=this.weapon.speed; this.range=this.weapon.range;
+  }  
+  gainXp(amount){ this.xp+=amount; while(this.xp>=this.xpToNext){ this.xp-=this.xpToNext; this.level++; this.xpToNext=Math.floor(100*Math.pow(1.2,this.level-1)); saveData.attributePoints+=3; saveData.level=this.level; this.hp=this.maxHp; } saveData.xp=this.xp; saveGame(); }
+  update(dt){
+    super.update(dt);
+    if(this.attackCooldown>0)this.attackCooldown-=dt; if(this.dodgeCooldown>0)this.dodgeCooldown-=dt; if(this.skillCooldown>0)this.skillCooldown-=dt; if(this.isDodging>0){ this.isDodging-=dt; }
+    if(this.mp<this.maxMp)this.mp=Math.min(this.maxMp,this.mp+dt*6); if(this.stamina<100)this.stamina=Math.min(100,this.stamina+dt*25);
+    
+    let inputX=0,inputY=0; if(keys['w']||keys['arrowup'])inputY-=1; if(keys['s']||keys['arrowdown'])inputY+=1; if(keys['a']||keys['arrowleft'])inputX-=1; if(keys['d']||keys['arrowright'])inputX+=1; if(joyActive){inputX=joyVec.x;inputY=joyVec.y;}
+    const inputLength=Math.hypot(inputX,inputY); if(inputLength>1){inputX/=inputLength;inputY/=inputLength;}
+    this.isRunning=(keys['control']||touchActions.run)&&this.stamina>0&&inputLength>0; let moveSpeed=this.speed*(this.isRunning?1.7:1); if(this.isDodging>0)moveSpeed=this.speed*3.5;
+    
+    this.vx=inputX*moveSpeed; this.vy=inputY*moveSpeed; if(inputLength>0.1)this.facing=Math.atan2(inputY,inputX);
+    this.x+=this.vx*dt; this.y+=this.vy*dt;
+    
+    // ENVIANDO POSIÇÃO PARA O SERVIDOR MULTIPLAYER
+    if(inputLength > 0 && Math.floor(this.time * 15) % 2 === 0) { // Limitador de pacotes para não travar o server
+        socket.emit('move', { x: this.x, y: this.y, facing: this.facing });
+    }
+
+    const attackKey=keys[' ']||touchActions.attack;
+    if(attackKey){ if(!this.isCharging){this.isCharging=true;this.attackCharge=0;} this.attackCharge=Math.min(1,this.attackCharge+dt*1.8); }else if(this.isCharging){ this.performAttack(); this.isCharging=false; this.attackCharge=0; }
+    if((keys['shift']||touchActions.dodge)&&this.dodgeCooldown<=0&&inputLength>0.1){ this.isDodging=0.35; this.dodgeCooldown=0.9; this.vx=inputX*this.speed*4; this.vy=inputY*this.speed*4; }
+    if((keys['e']||touchActions.skill)&&this.skillCooldown<=0&&this.mp>=25)this.useSkill();
+  }
+  
+  performAttack(){
+    if(this.attackCooldown>0)return; this.attackCooldown=1/this.attackSpeed;
+    const damage=this.damage*(1+this.attackCharge*1.8);
+    if(this.weapon.type==='melee'){
+      for(const enemy of game.enemies){
+        if(!enemy.alive)continue; const dist=Math.hypot(enemy.x-this.x,enemy.y-this.y); if(dist>this.range+enemy.radius)continue;
+        let angleDiff=Math.atan2(enemy.y-this.y,enemy.x-this.x)-this.facing; while(angleDiff>Math.PI)angleDiff-=Math.PI*2; while(angleDiff<-Math.PI)angleDiff+=Math.PI*2;
+        if(Math.abs(angleDiff)<Math.PI/2.5){ enemy.takeDamage(damage); enemy.applyKnockback(this.facing,250); }
+      } spawnSwingEffect(this.x,this.y,this.facing,this.range,this.weapon.swingColor||this.weapon.color);
+    }else{ game.projectiles.push(new Projectile(this.x,this.y,Math.cos(this.facing),Math.sin(this.facing),damage,this.weapon.projectileSpeed,this.weapon.color,this)); }
+  }
+  useSkill(){ this.mp-=25; this.skillCooldown=SKILLS[saveData.equippedSkill||'furia'].cd; for(let i=0;i<30;i++)spawnParticle(this.x,this.y,'#cc44ff',5); }
+}
+
+class Enemy extends Entity{
+  constructor(x,y,type,bossKey=null){
+    super(x,y); const data=bossKey?BOSSES[bossKey]:ENEMY_TYPES[type]; this.type=type; this.bossKey=bossKey; this.isBoss=!!bossKey; this.name=data.name;
+    this.maxHp = Math.floor(data.hp * (1 + (game.wave * 0.1))); this.hp = this.maxHp; this.damage = Math.floor(data.damage * (1 + (game.wave * 0.1)));
+    this.speed=data.speed; this.range=data.range; this.color=data.color; this.radius=data.size; this.aiType=data.ai; this.attackCooldown=0;
+  }
+  update(dt){
+    super.update(dt); if(this.attackCooldown>0)this.attackCooldown-=dt; if(!game.player||!game.player.alive)return;
+    const player=game.player; const dx=player.x-this.x; const dy=player.y-this.y; const dist=Math.hypot(dx,dy); const angle=Math.atan2(dy,dx);
+    if(dist<300){ this.vx=Math.cos(angle)*this.speed; this.vy=Math.sin(angle)*this.speed; this.x+=this.vx*dt; this.y+=this.vy*dt; this.facing=angle; }
+    if(dist<this.range+player.radius && this.attackCooldown<=0){ player.takeDamage(this.damage); this.attackCooldown=1.5; }
+  }
+  die(){ super.die(); game.stats.kills++; game.player.gainXp(20); saveData.gold+=20; saveGame(); if(this.isBoss){ setTimeout(() => showRoulette(this.bossKey), 1000); } }
+}
+class Projectile{
+  constructor(x,y,dx,dy,damage,speed,color,owner){ this.x=x;this.y=y;this.dx=dx;this.dy=dy;this.damage=damage;this.speed=speed;this.color=color;this.owner=owner; this.alive=true; }
+  update(dt){ this.x+=this.dx*this.speed*dt;this.y+=this.dy*this.speed*dt;
+    for(const enemy of game.enemies){ if(!enemy.alive)continue; if(Math.hypot(enemy.x-this.x,enemy.y-this.y)<enemy.radius+5){ enemy.takeDamage(this.damage); this.alive=false; break; } }
+  }
+}
+
+// ROLETA LOGIC
+let rouletteSpin = false; let bossQueued = null;
+function showRoulette(bKey) { bossQueued = bKey; game.paused = true; document.getElementById('roulettePanel').classList.remove('hidden'); document.getElementById('rouletteDisplay').textContent = "❓"; document.getElementById('spinBtn').style.display = 'inline-block'; document.getElementById('closeRouletteBtn').style.display = 'none'; }
+function spinRoulette() {
+    if(rouletteSpin) return; rouletteSpin = true; document.getElementById('spinBtn').style.display = 'none'; let disp = document.getElementById('rouletteDisplay'), ticks = 0;
+    let inter = setInterval(() => { disp.textContent = "💎 " + Math.floor(Math.random() * 1500 + 1); ticks++;
+        if(ticks > 25) { clearInterval(inter);
+            if(Math.random() <= 0.15) { let prize = Math.floor(Math.random() * 1500) + 1; disp.innerHTML = `<span style="color:#00ffff">💎 GANHOU ${prize} DIMAS!</span>`; saveData.diamantes = (saveData.diamantes || 0) + prize; saveGame(); } else { disp.innerHTML = `<span style="color:#ff4444">❌ Não foi dessa vez.</span>`; }
+            document.getElementById('closeRouletteBtn').style.display = 'inline-block'; rouletteSpin = false;
+        }
+    }, 80);
+}
+function closeRoulette() { document.getElementById('roulettePanel').classList.add('hidden'); game.paused = false; document.getElementById('winMenu').classList.remove('hidden'); }
+function spawnParticle(x,y,color,size){game.particles.push({x:x,y:y,vx:(Math.random()-0.5)*250,vy:(Math.random()-0.5)*250-80,life:0.7,maxLife:1,color:color,size:size||3,gravity:350});}
+function spawnSwingEffect(x,y,angle,range,color){game.particles.push({type:'swing',x:x,y:y,angle:angle,range:range,color:color,life:0.25,maxLife:0.25});}
+function spawnDamageNumber(x,y,value,color,isCrit=false){}
+function generateWorld(mapKey){ game.world.mapKey=mapKey; game.world.theme=MAPS[mapKey]; }
+function spawnWave(){ game.wave++; const cx=game.world.width/2, cy=game.world.height/2; for(let i=0;i<6;i++){ game.enemies.push(new Enemy(cx+Math.cos(i)*400,cy+Math.sin(i)*400,'barbaro')); } if(game.wave%3===0) { game.enemies.push(new Enemy(cx,cy-300,null,'rei_barbaro')); game.boss=game.enemies[game.enemies.length-1]; document.getElementById('bossHealth').style.display='block'; } }
+
+function render(){
+  const theme=game.world.theme; ctx.fillStyle=theme.bg;ctx.fillRect(0,0,W,H);
+  ctx.save();ctx.translate(W/2,H/2);ctx.scale(game.camera.zoom,game.camera.zoom);ctx.rotate(game.camera.rotation);ctx.translate(-game.camera.x,-game.camera.y);
+  
+  // DESENHAR OUTROS JOGADORES DO MULTIPLAYER
+  for(let id in otherPlayers) {
+      if(id === socket.id) continue; // Não desenha você mesmo de novo
+      let op = otherPlayers[id];
+      drawOtherPlayer(op);
+  }
+
+  for(const enemy of game.enemies){if(enemy.alive)drawCharacter(enemy,enemy.isBoss?1.6:1);}
+  for(const proj of game.projectiles){if(!proj.alive)continue;ctx.fillStyle=proj.color;ctx.beginPath();ctx.arc(proj.x,proj.y,5,0,Math.PI*2);ctx.fill();}
+  if(game.player&&game.player.alive)drawCharacter(game.player,1);
+  for(const p of game.particles){if(p.type==='swing'){ctx.strokeStyle=p.color;ctx.lineWidth=5;ctx.globalAlpha=p.life/p.maxLife;ctx.beginPath();ctx.arc(p.x,p.y,p.range,p.angle-Math.PI/3,p.angle+Math.PI/3);ctx.stroke();ctx.globalAlpha=1;}else{ctx.fillStyle=p.color;ctx.globalAlpha=p.life/p.maxLife;ctx.beginPath();ctx.arc(p.x,p.y,p.size,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;}}
+  ctx.restore();
+}
+
+// FUNÇÃO PARA DESENHAR OS AMIGOS DO MULTIPLAYER
+function drawOtherPlayer(op) {
+    const s = 18;
+    ctx.save();
+    ctx.fillStyle='rgba(0,0,0,0.45)';ctx.beginPath();ctx.ellipse(op.x,op.y+s*0.85,s,s*0.35,0,0,Math.PI*2);ctx.fill();
+    // Cor muda baseada na classe do amigo
+    ctx.fillStyle = op.classe==='mago'?'#4444ff':op.classe==='arqueiro'?'#44ff44':op.classe==='duelista'?'#ffd700':'#ff4444';
+    ctx.beginPath();ctx.arc(op.x,op.y,s,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#000';ctx.lineWidth=2.5;ctx.stroke();
+    const dirX=op.x+Math.cos(op.facing)*s*0.78;const dirY=op.y+Math.sin(op.facing)*s*0.78;
+    ctx.fillStyle='#000';ctx.beginPath();ctx.arc(dirX,dirY,s*0.28,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#fff'; ctx.font='bold 14px sans-serif'; ctx.textAlign='center';
+    ctx.fillText(op.classe.toUpperCase(), op.x, op.y - s - 10);
+    ctx.restore();
+}
+
+function drawCharacter(entity,scale){
+  const s=entity.radius*scale; ctx.fillStyle=entity.color||'#8b0000'; ctx.beginPath();ctx.arc(entity.x,entity.y,s,0,Math.PI*2);ctx.fill();ctx.stroke();
+  const dirX=entity.x+Math.cos(entity.facing)*s*0.78;const dirY=entity.y+Math.sin(entity.facing)*s*0.78; ctx.fillStyle='#000';ctx.beginPath();ctx.arc(dirX,dirY,s*0.28,0,Math.PI*2);ctx.fill();
+}
+
+function update(dt){
+  if(game.paused)return; game.time+=dt; if(game.player)game.player.update(dt);
+  for(const enemy of game.enemies){if(enemy.alive)enemy.update(dt);} game.enemies=game.enemies.filter(e=>e.alive);
+  for(const proj of game.projectiles)proj.update(dt); game.projectiles=game.projectiles.filter(p=>p.alive);
+  for(const p of game.particles){p.life-=dt;if(p.type!=='swing'){p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=p.gravity*dt;}} game.particles=game.particles.filter(p=>p.life>0);
+  if(game.player){game.camera.x+=(game.player.x-game.camera.x)*0.12;game.camera.y+=(game.player.y-game.camera.y)*0.12;}
+  if(game.enemies.length===0) spawnWave();
+  updateHUD();
+}
+function updateHUD(){
+  if(!game.player)return; const p=game.player;
+  document.getElementById('hpFill').style.width=(p.hp/p.maxHp*100)+'%'; document.getElementById('hpLabel').textContent=`${Math.ceil(p.hp)}/${p.maxHp}`;
+  document.getElementById('mpFill').style.width=(p.mp/p.maxMp*100)+'%'; document.getElementById('xpFill').style.width=(p.xp/p.xpToNext*100)+'%';
+  document.getElementById('statDmg').textContent=Math.floor(p.damage); document.getElementById('wName').textContent=p.weapon.name;
+  if(game.boss&&game.boss.alive)document.getElementById('bossFill').style.width=(game.boss.hp/game.boss.maxHp*100)+'%';
+}
+let lastTime=0; function gameLoop(timestamp){ const dt=Math.min(0.05,(timestamp-lastTime)/1000); lastTime=timestamp; update(dt); render(); requestAnimationFrame(gameLoop); }
+
+function startGame(mode){
+  game.mode=mode; document.getElementById('mainMenu').classList.add('hidden');
+  document.getElementById('chatContainer').classList.remove('hidden'); // MOSTRA O CHAT
+  generateWorld('floresta'); game.player=new Player(game.world.width/2,game.world.height/2); game.camera.x=game.player.x; game.camera.y=game.player.y;
+  game.enemies=[]; game.projectiles=[]; game.particles=[]; game.wave=0; game.boss=null; 
+  
+  // AVISA O SERVIDOR QUE VOCÊ ENTROU
+  socket.emit('join', { x: game.player.x, y: game.player.y, classe: saveData.playerClass, facing: game.player.facing });
+  
+  setTimeout(spawnWave,1000);
+}
+
+function openPanel(id){ document.getElementById('mainMenu').classList.add('hidden'); document.getElementById(id).style.display='block'; }
+function closePanel(id){ document.getElementById(id).style.display='none'; document.getElementById('mainMenu').classList.remove('hidden'); updateLobby(); }
+
+initApp(); requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
