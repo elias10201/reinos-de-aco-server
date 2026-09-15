@@ -2,6 +2,149 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 
+// ===== REINOS DE AÇO V10 — CONTAS, POSTGRESQL E RECUPERAÇÃO POR WHATSAPP =====
+const crypto = require('crypto');
+const { Pool } = require('pg');
+
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) console.warn('⚠️ DATABASE_URL não configurada. O servidor não poderá salvar contas até o PostgreSQL ser configurado.');
+const pool = DATABASE_URL ? new Pool({
+  connectionString: DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  max: 10
+}) : null;
+
+const AUTH_SESSION_DAYS = 30;
+const RESET_MINUTES = 10;
+const RESET_MAX_ATTEMPTS = 5;
+
+function normalizePhone(v) {
+  let s = String(v ?? '').replace(/\D/g, '');
+  if (s.startsWith('00')) s = s.slice(2);
+  if (s.length === 10 || s.length === 11) s = '55' + s;
+  return s;
+}
+function validPhone(s) { return /^\d{11,15}$/.test(s); }
+function validPassword(s) { return typeof s === 'string' && s.length >= 6 && s.length <= 128; }
+function validNick(s) { return typeof s === 'string' && /^[\p{L}\p{N}_ .-]{3,20}$/u.test(s.trim()); }
+function genId(prefix='RA') { return prefix + '-' + crypto.randomBytes(5).toString('hex').toUpperCase(); }
+function randomCode() { return String(crypto.randomInt(100000, 1000000)); }
+function sha256(v) { return crypto.createHash('sha256').update(String(v)).digest('hex'); }
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `scrypt$${salt}$${hash}`;
+}
+function verifyPassword(password, stored) {
+  try {
+    const [, salt, hex] = String(stored).split('$');
+    if (!salt || !hex) return false;
+    const got = crypto.scryptSync(password, salt, 64).toString('hex');
+    return crypto.timingSafeEqual(Buffer.from(got,'hex'), Buffer.from(hex,'hex'));
+  } catch { return false; }
+}
+function authTokenFromRequest(req) {
+  const h = String(req.headers.authorization || '');
+  return h.startsWith('Bearer ') ? h.slice(7).trim() : '';
+}
+async function getSessionAccount(token) {
+  if (!pool || !token) return null;
+  const q = await pool.query(`SELECT a.id,a.nick,a.phone,a.verified,a.active_character_id FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE s.token_hash=$1 AND s.expires_at>NOW()`, [sha256(token)]);
+  return q.rows[0] || null;
+}
+async function createSession(accountId) {
+  const token = crypto.randomBytes(32).toString('hex');
+  await pool.query(`INSERT INTO sessions(token_hash,account_id,expires_at) VALUES($1,$2,NOW()+($3 || ' days')::interval)`, [sha256(token), accountId, AUTH_SESSION_DAYS]);
+  return token;
+}
+async function sendWhatsAppCode(phone, code) {
+  const token = process.env.WHATSAPP_TOKEN;
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const template = process.env.WHATSAPP_AUTH_TEMPLATE || 'reinos_codigo';
+  const language = process.env.WHATSAPP_TEMPLATE_LANGUAGE || 'pt_BR';
+  if (!token || !phoneNumberId) throw new Error('WhatsApp Cloud API não configurada no Render.');
+  const version = process.env.WHATSAPP_GRAPH_VERSION || 'v23.0';
+  const url = `https://graph.facebook.com/${version}/${phoneNumberId}/messages`;
+  // O template precisa estar aprovado na Meta. Ele deve receber o código como variável do corpo.
+  const payload = {
+    messaging_product: 'whatsapp', to: phone, type: 'template',
+    template: { name: template, language: { code: language }, components: [
+      { type: 'body', parameters: [{ type: 'text', text: code }] }
+    ]}
+  };
+  const r = await fetch(url, { method:'POST', headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'}, body:JSON.stringify(payload) });
+  const body = await r.text();
+  if (!r.ok) throw new Error(`WhatsApp API ${r.status}: ${body.slice(0,500)}`);
+  return true;
+}
+async function initDatabase() {
+  if (!pool) return;
+  try { await pool.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`); } catch(e) { console.warn('pgcrypto:', e.message); }
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS accounts (
+      id VARCHAR(32) PRIMARY KEY,
+      phone VARCHAR(20) UNIQUE NOT NULL,
+      nick VARCHAR(20) UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      verified BOOLEAN NOT NULL DEFAULT FALSE,
+      active_character_id UUID,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS characters (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      account_id VARCHAR(32) NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      name VARCHAR(20) NOT NULL,
+      class_key VARCHAR(20) NOT NULL,
+      color VARCHAR(7) NOT NULL DEFAULT '#39eaff',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_characters_account ON characters(account_id);
+    CREATE TABLE IF NOT EXISTS sessions (
+      token_hash CHAR(64) PRIMARY KEY,
+      account_id VARCHAR(32) NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS password_reset_codes (
+      id BIGSERIAL PRIMARY KEY,
+      account_id VARCHAR(32) NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      code_hash CHAR(64) NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      used BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_reset_account ON password_reset_codes(account_id, created_at DESC);
+  `);
+}
+async function publicProfileById(id) {
+  if (!pool) return null;
+  const q = await pool.query(`SELECT id,nick,created_at,verified,active_character_id FROM accounts WHERE id=$1`, [id]);
+  if (!q.rows[0]) return null;
+  const a=q.rows[0];
+  const c=await pool.query(`SELECT id,name,class_key,color,created_at FROM characters WHERE account_id=$1 ORDER BY created_at ASC`,[id]);
+  return {id:a.id,nick:a.nick,verified:a.verified,createdAt:a.created_at,online:!!getSocketIdByUserId(a.id),characters:c.rows.map(x=>({id:x.id,name:x.name,classe:x.class_key,color:x.color,createdAt:x.created_at}))};
+}
+async function publicProfilesSearch(query) {
+  if (!pool) return [];
+  const s=String(query||'').trim(); if(!s) return [];
+  const q=await pool.query(`SELECT id,nick,created_at,verified FROM accounts WHERE id=$1 OR nick ILIKE $2 ORDER BY nick LIMIT 10`,[s,s+'%']);
+  const out=[]; for(const a of q.rows){ const p=await publicProfileById(a.id); if(p) out.push(p); } return out;
+}
+async function getCharacter(accountId, charId) {
+  if (!pool || !charId) return null;
+  const q=await pool.query(`SELECT id,name,class_key,color FROM characters WHERE id=$1 AND account_id=$2`,[charId,accountId]);
+  return q.rows[0] || null;
+}
+async function getCharacters(accountId) {
+  if (!pool) return [];
+  const q=await pool.query(`SELECT id,name,class_key,color,created_at FROM characters WHERE account_id=$1 ORDER BY created_at ASC`,[accountId]);
+  return q.rows;
+}
+
+
 const app = express();
 const server = http.createServer(app);
 
@@ -40,7 +183,9 @@ function publicPlayer(socketId) {
     name: p.nome || 'Guerreiro',
     local: p.local || 'lobby',
     status: p.status || 'online',
-    teamId: p.teamId || null
+    teamId: p.teamId || null,
+    characterId: p.characterId || null,
+    color: p.characterColor || '#39eaff'
   };
 }
 
@@ -150,9 +295,12 @@ function removeFromRoom(userId) {
 io.on('connection', (socket) => {
   console.log('Novo guerreiro conectou:', socket.id);
 
-  socket.on('join', (data = {}) => {
-    const nome = safeText(data.nome || data.name, 24) || 'Guerreiro';
-    const userId = safeText(data.userId, 80) || socket.id;
+  socket.on('join', async (data = {}) => {
+    const account=socket.data.account;
+    if(!account) return socket.emit('socialError',{message:'Faça login para jogar.'});
+    const char=await getCharacter(account.id, data.characterId || account.active_character_id);
+    const nome = safeText(char?.name || account.nick, 24) || account.nick || 'Guerreiro';
+    const userId = account.id;
 
     // Se a mesma conta conectar novamente, substitui a conexão antiga.
     const oldSocketId = getSocketIdByUserId(userId);
@@ -167,19 +315,23 @@ io.on('connection', (socket) => {
       userId,
       x: Number(data.x) || 0,
       y: Number(data.y) || 0,
-      classe: data.classe || 'guerreiro',
+      classe: char?.class_key || data.classe || 'guerreiro',
       facing: data.facing || 1,
       nome,
       local: data.local || 'lobby',
       status: 'online',
-      teamId: null
+      teamId: null,
+      characterId: char?.id || null,
+      characterColor: char?.color || '#39eaff'
     };
 
     socket.data.userId = userId;
     socket.emit('connectedInfo', {
       socketId: socket.id,
       userId,
-      nome
+      nome,
+      characterId: char?.id || null,
+      characterColor: char?.color || '#39eaff'
     });
 
     sendSocialState(userId);
@@ -187,6 +339,31 @@ io.on('connection', (socket) => {
     notifyFriendsOnline(userId);
 
     console.log(`${nome} entrou online (${socket.id})`);
+  });
+
+
+  socket.on('profileLookup', async (data={})=>{
+    try{ const q=safeText(data.query,40); const profiles=await publicProfilesSearch(q); socket.emit('profileLookupResult',{query:q,profiles}); }
+    catch(e){ socket.emit('socialError',{message:'Erro ao consultar perfil.'}); }
+  });
+
+  socket.on('myCharacters', async ()=>{ try{socket.emit('myCharactersResult',{characters:await getCharacters(socket.data.account.id)});}catch(e){socket.emit('socialError',{message:'Erro ao carregar personagens.'});} });
+
+  socket.on('createCharacter', async (data={})=>{
+    try{
+      const account=socket.data.account, name=safeText(data.name,20), classe=safeText(data.classe,20), color=safeText(data.color,7);
+      const allowed=['guerreiro','mago','arqueiro','duelista'];
+      if(!/^[\p{L}\p{N}_ .-]{2,20}$/u.test(name)||!allowed.includes(classe)||!/^#[0-9a-fA-F]{6}$/.test(color))return socket.emit('socialError',{message:'Nome, classe ou cor inválidos.'});
+      const count=await pool.query('SELECT COUNT(*)::int AS n FROM characters WHERE account_id=$1',[account.id]); if(count.rows[0].n>=8)return socket.emit('socialError',{message:'Limite de 8 personagens por conta.'});
+      const q=await pool.query('INSERT INTO characters(account_id,name,class_key,color) VALUES($1,$2,$3,$4) RETURNING id,name,class_key,color,created_at',[account.id,name,classe,color]);
+      if(!account.active_character_id){await pool.query('UPDATE accounts SET active_character_id=$1 WHERE id=$2',[q.rows[0].id,account.id]);account.active_character_id=q.rows[0].id;}
+      socket.emit('characterCreated',{character:q.rows[0]});
+    }catch(e){console.error(e);socket.emit('socialError',{message:'Não foi possível criar o personagem.'});}
+  });
+
+  socket.on('selectCharacter', async (data={})=>{
+    try{const account=socket.data.account,c=await getCharacter(account.id,data.id);if(!c)return socket.emit('socialError',{message:'Personagem não encontrado.'});await pool.query('UPDATE accounts SET active_character_id=$1 WHERE id=$2',[c.id,account.id]);account.active_character_id=c.id;socket.data.characterId=c.id;socket.emit('characterSelected',{character:c});}
+    catch(e){socket.emit('socialError',{message:'Não foi possível selecionar o personagem.'});}
   });
 
   socket.on('move', (data = {}) => {
@@ -653,6 +830,11 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 
-server.listen(PORT, () => {
-  console.log(`Servidor Reinos de Aço rodando na porta ${PORT}`);
+initDatabase().then(()=>{
+  server.listen(PORT, () => {
+    console.log(`Servidor Reinos de Aço V10 rodando na porta ${PORT}`);
+  });
+}).catch(err=>{
+  console.error('❌ Falha ao iniciar banco:',err);
+  process.exit(1);
 });
