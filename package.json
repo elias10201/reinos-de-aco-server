@@ -1,8 +1,14 @@
 {
   "name": "reinos-de-aco-server",
-  "version": "1.1.0",
-  "description": "Servidor multiplayer do Reinos de Aço - amigos, times, convites, salas e cidade social",
+  "version": "2.0.0",
+  "description": "Reinos de Aço V10 - contas PostgreSQL, personagens, perfis, amigos, times, salas e recuperação via WhatsApp",
   "main": "server.js",
-  "scripts": {"start":"node server.js"},
-  "dependencies": {"express":"^4.21.2","socket.io":"^4.8.1"}
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1",
+    "pg": "^8.16.3"
+  }
 }
