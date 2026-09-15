@@ -137,6 +137,8 @@ function removeFromRoom(userId) {
     if (!room.players.includes(userId)) continue;
 
     room.players = room.players.filter(id => id !== userId);
+    const sid = getSocketIdByUserId(userId);
+    if (sid) io.sockets.sockets.get(sid)?.leave(roomId);
     if (room.players.length === 0) {
       delete rooms[roomId];
     } else {
@@ -536,19 +538,34 @@ io.on('connection', (socket) => {
     }[mode];
 
     const roomId = `room_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const team = Object.values(teams).find(t => t.members.includes(p.userId));
+    let roomPlayers = [p.userId];
+    // Para 2v2/3v3/campanha/sobrevivência, o líder pode levar automaticamente
+    // os companheiros online do próprio time, respeitando o limite da sala.
+    if (data.useTeam && team) {
+      const candidates = team.members.filter(id => id !== p.userId && getSocketIdByUserId(id));
+      roomPlayers = roomPlayers.concat(candidates.slice(0, Math.max(0, maxPlayers - 1)));
+    }
 
     rooms[roomId] = {
       id: roomId,
       mode,
       host: p.userId,
-      players: [p.userId],
+      players: roomPlayers,
       maxPlayers,
-      status: 'waiting',
+      status: roomPlayers.length >= maxPlayers ? 'ready' : 'waiting',
       createdAt: Date.now()
     };
 
-    socket.join(roomId);
-    socket.emit('gameRoomCreated', rooms[roomId]);
+    for (const userId of roomPlayers) {
+      const sid = getSocketIdByUserId(userId);
+      if (sid) {
+        io.sockets.sockets.get(sid)?.join(roomId);
+        io.to(sid).emit('gameRoomCreated', rooms[roomId]);
+      }
+    }
+    io.to(roomId).emit('roomUpdate', rooms[roomId]);
+    if (rooms[roomId].status === 'ready') io.to(roomId).emit('roomReady', rooms[roomId]);
   });
 
   socket.on('joinRoom', (data = {}) => {
@@ -604,6 +621,10 @@ io.on('connection', (socket) => {
 
     const room = rooms[roomId];
     if (room.host !== p.userId) return;
+    if (['arena1v1','arena2v2','arena3v3'].includes(room.mode) && room.players.length < 2) {
+      socket.emit('socialError', { message: 'Adicione pelo menos mais um jogador antes de iniciar.' });
+      return;
+    }
 
     room.status = 'started';
     io.to(roomId).emit('gameStart', room);
