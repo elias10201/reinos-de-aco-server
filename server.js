@@ -1,1014 +1,175 @@
 const express = require('express');
 const http = require('http');
-const { Server } = require('socket.io');
-
-// ===== REINOS DE AÇO V10 — CONTAS, POSTGRESQL E RECUPERAÇÃO POR WHATSAPP =====
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
-
-const DATABASE_URL = process.env.DATABASE_URL;
-const RECOVERY_SECRET = process.env.RECOVERY_SECRET || 'REINOS-DE-ACO-TROQUE-ESTE-SEGREDO';
-const ADMIN_WHATSAPP = (process.env.ADMIN_WHATSAPP || '5544997270282').replace(/\D/g, '');
-if (!DATABASE_URL) console.warn('⚠️ DATABASE_URL não configurada. Cadastros e contas precisam de PostgreSQL.');
-if (!process.env.RECOVERY_SECRET) console.warn('⚠️ RECOVERY_SECRET não configurado. Defina um segredo forte no Render.');
-const pool = DATABASE_URL ? new Pool({
-  connectionString: DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  max: 10
-}) : null;
-
-const AUTH_SESSION_DAYS = 30;
-const RESET_MINUTES = 10;
-const RESET_MAX_ATTEMPTS = 5;
-
-function normalizePhone(v) {
-  let s = String(v ?? '').replace(/\D/g, '');
-  if (s.startsWith('00')) s = s.slice(2);
-  if (s.length === 10 || s.length === 11) s = '55' + s;
-  return s;
-}
-function validPhone(s) { return /^\d{11,15}$/.test(s); }
-function validPassword(s) { return typeof s === 'string' && s.length >= 6 && s.length <= 128; }
-function validNick(s) { return typeof s === 'string' && /^[\p{L}\p{N}_ .-]{3,20}$/u.test(s.trim()); }
-function genId(prefix='RA') { return prefix + '-' + crypto.randomBytes(5).toString('hex').toUpperCase(); }
-function randomCode() { return String(crypto.randomInt(100000, 1000000)); }
-function sha256(v) { return crypto.createHash('sha256').update(String(v)).digest('hex'); }
-function recoveryCode(accountId) {
-  const h = crypto.createHmac('sha256', RECOVERY_SECRET).update(String(accountId)).digest('hex').toUpperCase();
-  return 'RA-' + h.slice(0, 4) + '-' + h.slice(4, 8) + '-' + h.slice(8, 12);
-}
-function whatsappUrlForRecovery(account) {
-  const code = recoveryCode(account.id);
-  const text = `Olá, quero recuperar minha conta do Reinos de Aço.%0A🆔 ID: ${encodeURIComponent(account.id)}%0A👤 Nick: ${encodeURIComponent(account.nick)}%0A🔐 Código de recuperação: ${encodeURIComponent(code)}`;
-  return `https://wa.me/${ADMIN_WHATSAPP}?text=${text}`;
-}
-function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
-  return `scrypt$${salt}$${hash}`;
-}
-function verifyPassword(password, stored) {
-  try {
-    const [, salt, hex] = String(stored).split('$');
-    if (!salt || !hex) return false;
-    const got = crypto.scryptSync(password, salt, 64).toString('hex');
-    return crypto.timingSafeEqual(Buffer.from(got,'hex'), Buffer.from(hex,'hex'));
-  } catch { return false; }
-}
-function authTokenFromRequest(req) {
-  const h = String(req.headers.authorization || '');
-  return h.startsWith('Bearer ') ? h.slice(7).trim() : '';
-}
-async function getSessionAccount(token) {
-  if (!pool || !token) return null;
-  const q = await pool.query(`SELECT a.id,a.nick,a.phone,a.verified,a.active_character_id FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE s.token_hash=$1 AND s.expires_at>NOW()`, [sha256(token)]);
-  return q.rows[0] || null;
-}
-async function createSession(accountId) {
-  const token = crypto.randomBytes(32).toString('hex');
-  await pool.query(`INSERT INTO sessions(token_hash,account_id,expires_at) VALUES($1,$2,NOW()+($3 || ' days')::interval)`, [sha256(token), accountId, AUTH_SESSION_DAYS]);
-  return token;
-}
-async function sendWhatsAppCode(phone, code) {
-  const token = process.env.WHATSAPP_TOKEN;
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const template = process.env.WHATSAPP_AUTH_TEMPLATE || 'reinos_codigo';
-  const language = process.env.WHATSAPP_TEMPLATE_LANGUAGE || 'pt_BR';
-  if (!token || !phoneNumberId) throw new Error('WhatsApp Cloud API não configurada no Render.');
-  const version = process.env.WHATSAPP_GRAPH_VERSION || 'v23.0';
-  const url = `https://graph.facebook.com/${version}/${phoneNumberId}/messages`;
-  // O template precisa estar aprovado na Meta. Ele deve receber o código como variável do corpo.
-  const payload = {
-    messaging_product: 'whatsapp', to: phone, type: 'template',
-    template: { name: template, language: { code: language }, components: [
-      { type: 'body', parameters: [{ type: 'text', text: code }] }
-    ]}
-  };
-  const r = await fetch(url, { method:'POST', headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'}, body:JSON.stringify(payload) });
-  const body = await r.text();
-  if (!r.ok) throw new Error(`WhatsApp API ${r.status}: ${body.slice(0,500)}`);
-  return true;
-}
-async function initDatabase() {
-  if (!pool) return;
-  try { await pool.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`); } catch(e) { console.warn('pgcrypto:', e.message); }
-  await pool.query(`CREATE SEQUENCE IF NOT EXISTS account_id_seq START WITH 1;`);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS accounts (
-      id VARCHAR(32) PRIMARY KEY,
-      phone VARCHAR(20) UNIQUE NOT NULL,
-      nick VARCHAR(20) UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      verified BOOLEAN NOT NULL DEFAULT FALSE,
-      active_character_id UUID,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE TABLE IF NOT EXISTS characters (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      account_id VARCHAR(32) NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-      name VARCHAR(20) NOT NULL,
-      class_key VARCHAR(20) NOT NULL,
-      color VARCHAR(7) NOT NULL DEFAULT '#39eaff',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_characters_account ON characters(account_id);
-    CREATE TABLE IF NOT EXISTS sessions (
-      token_hash CHAR(64) PRIMARY KEY,
-      account_id VARCHAR(32) NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-      expires_at TIMESTAMPTZ NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE TABLE IF NOT EXISTS password_reset_codes (
-      id BIGSERIAL PRIMARY KEY,
-      account_id VARCHAR(32) NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-      code_hash CHAR(64) NOT NULL,
-      expires_at TIMESTAMPTZ NOT NULL,
-      attempts INTEGER NOT NULL DEFAULT 0,
-      used BOOLEAN NOT NULL DEFAULT FALSE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_reset_account ON password_reset_codes(account_id, created_at DESC);
-  `);
-}
-async function publicProfileById(id) {
-  if (!pool) return null;
-  const q = await pool.query(`SELECT id,nick,created_at,verified,active_character_id FROM accounts WHERE id=$1`, [id]);
-  if (!q.rows[0]) return null;
-  const a=q.rows[0];
-  const c=await pool.query(`SELECT id,name,class_key,color,created_at FROM characters WHERE account_id=$1 ORDER BY created_at ASC`,[id]);
-  return {id:a.id,nick:a.nick,verified:a.verified,createdAt:a.created_at,online:!!getSocketIdByUserId(a.id),characters:c.rows.map(x=>({id:x.id,name:x.name,classe:x.class_key,color:x.color,createdAt:x.created_at}))};
-}
-async function publicProfilesSearch(query) {
-  if (!pool) return [];
-  const s=String(query||'').trim(); if(!s) return [];
-  const q=await pool.query(`SELECT id,nick,created_at,verified FROM accounts WHERE id=$1 OR nick ILIKE $2 ORDER BY nick LIMIT 10`,[s,s+'%']);
-  const out=[]; for(const a of q.rows){ const p=await publicProfileById(a.id); if(p) out.push(p); } return out;
-}
-async function getCharacter(accountId, charId) {
-  if (!pool || !charId) return null;
-  const q=await pool.query(`SELECT id,name,class_key,color FROM characters WHERE id=$1 AND account_id=$2`,[charId,accountId]);
-  return q.rows[0] || null;
-}
-async function getCharacters(accountId) {
-  if (!pool) return [];
-  const q=await pool.query(`SELECT id,name,class_key,color,created_at FROM characters WHERE account_id=$1 ORDER BY created_at ASC`,[accountId]);
-  return q.rows;
-}
-
+const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-
-const io = new Server(server, {
-  cors: { origin: true, credentials: false, methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'] }
-});
-
-// CORS para GitHub Pages, arquivo local (origin "null") e outros clientes do jogo.
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  res.setHeader('Access-Control-Allow-Origin', origin || '*');
-  res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Access-Control-Max-Age', '86400');
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
-  next();
-});
-app.use(express.json({ limit: '100kb' }));
-
-function requireDatabase(res) {
-  if (!pool) {
-    res.status(503).json({ error: 'Banco de dados não configurado. No Render, conecte um PostgreSQL e defina DATABASE_URL.' });
-    return false;
-  }
-  return true;
-}
-
-async function accountResponse(account) {
-  const chars = await getCharacters(account.id);
-  return {
-    id: account.id,
-    nick: account.nick,
-    phone: account.phone,
-    verified: !!account.verified,
-    activeCharacterId: account.active_character_id || null
-  , characters: chars
-  };
-}
-
-// ===== AUTENTICAÇÃO HTTP =====
-app.post('/api/auth/register', async (req, res) => {
-  if (!requireDatabase(res)) return;
-  try {
-    const nick = safeText(req.body?.nick, 20).trim();
-    const phone = normalizePhone(req.body?.phone);
-    const password = String(req.body?.password || '');
-    if (!validNick(nick)) return res.status(400).json({ error: 'Nick inválido. Use 3 a 20 caracteres.' });
-    if (!validPhone(phone)) return res.status(400).json({ error: 'Número de WhatsApp inválido.' });
-    if (!validPassword(password)) return res.status(400).json({ error: 'A senha precisa ter pelo menos 6 caracteres.' });
-
-    const exists = await pool.query('SELECT id FROM accounts WHERE phone=$1 OR LOWER(nick)=LOWER($2) LIMIT 1', [phone, nick]);
-    if (exists.rows[0]) return res.status(409).json({ error: 'Esse WhatsApp ou Nick já está cadastrado.' });
-
-    let id;
-    for (let i=0;i<5;i++) {
-      const q = await pool.query("SELECT LPAD(nextval('account_id_seq')::text,6,'0') AS id");
-      const candidate = q.rows[0].id;
-      const used = await pool.query('SELECT 1 FROM accounts WHERE id=$1', [candidate]);
-      if (!used.rows[0]) { id = candidate; break; }
-    }
-    if (!id) return res.status(500).json({ error: 'Não foi possível gerar o ID da conta.' });
-
-    const q = await pool.query('INSERT INTO accounts(id,phone,nick,password_hash) VALUES($1,$2,$3,$4) RETURNING id,nick,phone,verified,active_character_id', [id,phone,nick,hashPassword(password)]);
-    const account = q.rows[0];
-    const token = await createSession(account.id);
-    const recovery = recoveryCode(account.id);
-    res.json({ token, account: await accountResponse(account), recoveryCode: recovery, whatsappUrl: whatsappUrlForRecovery(account) });
-  } catch (e) {
-    console.error('register:', e);
-    if (e.code === '23505') return res.status(409).json({ error: 'WhatsApp ou Nick já cadastrado.' });
-    res.status(500).json({ error: 'Erro ao criar conta.' });
-  }
-});
-
-app.post('/api/auth/login', async (req, res) => {
-  if (!requireDatabase(res)) return;
-  try {
-    const login = String(req.body?.login || '').trim();
-    const password = String(req.body?.password || '');
-    if (!login || !password) return res.status(400).json({ error: 'Informe o WhatsApp/Nick e a senha.' });
-    const phone = normalizePhone(login);
-    const q = await pool.query('SELECT id,nick,phone,verified,active_character_id,password_hash FROM accounts WHERE phone=$1 OR LOWER(nick)=LOWER($2) LIMIT 1', [phone, login]);
-    const account = q.rows[0];
-    if (!account || !verifyPassword(password, account.password_hash)) return res.status(401).json({ error: 'WhatsApp/Nick ou senha incorretos.' });
-    const token = await createSession(account.id);
-    res.json({ token, account: await accountResponse(account) });
-  } catch (e) { console.error('login:',e); res.status(500).json({ error:'Erro ao entrar na conta.' }); }
-});
-
-app.get('/api/me', async (req, res) => {
-  if (!requireDatabase(res)) return;
-  try {
-    const account = await getSessionAccount(authTokenFromRequest(req));
-    if (!account) return res.status(401).json({ error:'Sessão inválida ou expirada.' });
-    res.json({ account: await accountResponse(account), characters: await getCharacters(account.id) });
-  } catch(e) { console.error('me:',e); res.status(500).json({error:'Erro ao carregar conta.'}); }
-});
-
-app.post('/api/auth/request-reset', async (req, res) => {
-  if (!requireDatabase(res)) return;
-  try {
-    const phone = normalizePhone(req.body?.phone);
-    if (!validPhone(phone)) return res.status(400).json({error:'Número de WhatsApp inválido.'});
-    const q = await pool.query('SELECT id,nick,phone FROM accounts WHERE phone=$1 LIMIT 1',[phone]);
-    if (!q.rows[0]) return res.status(404).json({error:'Não encontramos uma conta com esse WhatsApp.'});
-    const account=q.rows[0];
-    // Não envia automaticamente pela API. Apenas abre o WhatsApp do administrador
-    // com a mensagem pronta, exatamente como o botão de compra de diamantes.
-    res.json({message:'WhatsApp aberto com sua solicitação pronta. Envie a mensagem para continuar.', whatsappUrl:whatsappUrlForRecovery(account), id:account.id});
-  } catch(e) { console.error('request-reset:',e); res.status(500).json({error:'Erro ao preparar a recuperação.'}); }
-});
-
-app.post('/api/auth/reset-password', async (req, res) => {
-  if (!requireDatabase(res)) return;
-  try {
-    const phone = normalizePhone(req.body?.phone);
-    const code = String(req.body?.code || '').trim().toUpperCase();
-    const newPassword = String(req.body?.newPassword || '');
-    if (!validPhone(phone) || !validPassword(newPassword)) return res.status(400).json({error:'Número ou nova senha inválidos.'});
-    const q = await pool.query('SELECT id,nick,phone,verified,active_character_id FROM accounts WHERE phone=$1 LIMIT 1',[phone]);
-    const account=q.rows[0];
-    if (!account) return res.status(404).json({error:'Conta não encontrada.'});
-    if (code !== recoveryCode(account.id)) return res.status(401).json({error:'Código de recuperação incorreto.'});
-    await pool.query('UPDATE accounts SET password_hash=$1,updated_at=NOW() WHERE id=$2',[hashPassword(newPassword),account.id]);
-    await pool.query('DELETE FROM sessions WHERE account_id=$1',[account.id]);
-    const token=await createSession(account.id);
-    res.json({message:'Senha alterada com sucesso.',token,account:await accountResponse(account)});
-  } catch(e) { console.error('reset-password:',e); res.status(500).json({error:'Erro ao alterar a senha.'}); }
-});
-
-app.get('/api/profile', async (req,res)=>{
-  if (!requireDatabase(res)) return;
-  try { res.json({profiles:await publicProfilesSearch(req.query?.q)}); }
-  catch(e){console.error('profile:',e);res.status(500).json({error:'Erro ao consultar perfil.'});}
-});
-
-app.post('/api/characters', async (req,res)=>{
-  if (!requireDatabase(res)) return;
-  try {
-    const account=await getSessionAccount(authTokenFromRequest(req)); if(!account)return res.status(401).json({error:'Sessão inválida.'});
-    const name=safeText(req.body?.name,20).trim(), classe=safeText(req.body?.classe,20), color=safeText(req.body?.color,7);
-    const allowed=['guerreiro','mago','arqueiro','duelista'];
-    if(!/^[\p{L}\p{N}_ .-]{2,20}$/u.test(name)||!allowed.includes(classe)||!/^#[0-9a-fA-F]{6}$/.test(color))return res.status(400).json({error:'Nome, classe ou cor inválidos.'});
-    const count=await pool.query('SELECT COUNT(*)::int AS n FROM characters WHERE account_id=$1',[account.id]); if(count.rows[0].n>=8)return res.status(400).json({error:'Limite de 8 personagens por conta.'});
-    const q=await pool.query('INSERT INTO characters(account_id,name,class_key,color) VALUES($1,$2,$3,$4) RETURNING id,name,class_key,color,created_at',[account.id,name,classe,color]);
-    if(!account.active_character_id)await pool.query('UPDATE accounts SET active_character_id=$1 WHERE id=$2',[q.rows[0].id,account.id]);
-    res.json({character:q.rows[0]});
-  } catch(e){console.error('character create:',e);res.status(500).json({error:'Não foi possível criar o personagem.'});}
-});
-
-app.post('/api/characters/select', async (req,res)=>{
-  if (!requireDatabase(res)) return;
-  try { const account=await getSessionAccount(authTokenFromRequest(req)); if(!account)return res.status(401).json({error:'Sessão inválida.'}); const c=await getCharacter(account.id,req.body?.id); if(!c)return res.status(404).json({error:'Personagem não encontrado.'}); await pool.query('UPDATE accounts SET active_character_id=$1,updated_at=NOW() WHERE id=$2',[c.id,account.id]); res.json({character:c}); }
-  catch(e){console.error('character select:',e);res.status(500).json({error:'Não foi possível selecionar o personagem.'});}
-});
-
-app.get('/', (req, res) => {
-  res.send('Reinos de Aço - Servidor Multiplayer Online ⚔️');
-});
-
-const players = {};
-const profiles = {};
-const friends = {};       // friends[userId] = Set(userId)
-const friendRequests = {}; // friendRequests[userId] = Set(userId)
-const teams = {};         // teams[teamId] = team
-const invites = {};       // invites[userId] = [{type,...}]
-const rooms = {};          // rooms[roomId] = room
-
-function safeText(value, max = 180) {
-  return String(value ?? '').trim().slice(0, max);
-}
-
-function publicPlayer(socketId) {
-  const p = players[socketId];
-  if (!p) return null;
-
-  return {
-    id: p.id,
-    userId: p.userId,
-    x: Number(p.x) || 0,
-    y: Number(p.y) || 0,
-    classe: p.classe || 'guerreiro',
-    facing: p.facing || 1,
-    nome: p.nome || 'Guerreiro',
-    name: p.nome || 'Guerreiro',
-    local: p.local || 'lobby',
-    status: p.status || 'online',
-    teamId: p.teamId || null,
-    characterId: p.characterId || null,
-    color: p.characterColor || '#39eaff'
-  };
-}
-
-function emitPlayers() {
-  const result = {};
-  for (const id of Object.keys(players)) {
-    result[id] = publicPlayer(id);
-  }
-  io.emit('updatePlayers', result);
-}
-
-function getSocketIdByUserId(userId) {
-  for (const id of Object.keys(players)) {
-    if (players[id].userId === userId) return id;
-  }
-  return null;
-}
-
-function sendToUser(userId, event, data) {
-  const socketId = getSocketIdByUserId(userId);
-  if (socketId) io.to(socketId).emit(event, data);
-}
-
-function ensureUserData(userId, nome) {
-  if (!profiles[userId]) {
-    profiles[userId] = {
-      id: userId,
-      nome: nome || 'Guerreiro',
-      createdAt: Date.now()
-    };
-  } else if (nome) {
-    profiles[userId].nome = nome;
-  }
-
-  if (!friends[userId]) friends[userId] = new Set();
-  if (!friendRequests[userId]) friendRequests[userId] = new Set();
-  if (!invites[userId]) invites[userId] = [];
-}
-
-function friendsList(userId) {
-  ensureUserData(userId);
-
-  return [...friends[userId]].map(id => {
-    const socketId = getSocketIdByUserId(id);
-    const profile = profiles[id] || { id, nome: 'Guerreiro' };
-    return {
-      id,
-      nome: profile.nome,
-      online: !!socketId,
-      socketId: socketId || null,
-      player: socketId ? publicPlayer(socketId) : null
-    };
-  });
-}
-
-function sendSocialState(userId) {
-  ensureUserData(userId);
-
-  const requests = [...friendRequests[userId]].map(id => ({
-    id,
-    nome: profiles[id]?.nome || 'Guerreiro',
-    online: !!getSocketIdByUserId(id)
-  }));
-
-  const myTeam = Object.values(teams).find(t => t.members.includes(userId)) || null;
-
-  sendToUser(userId, 'socialState', {
-    friends: friendsList(userId),
-    requests,
-    invites: invites[userId],
-    team: myTeam ? {
-      id: myTeam.id,
-      nome: myTeam.nome,
-      lider: myTeam.lider,
-      members: myTeam.members.map(id => ({
-        id,
-        nome: profiles[id]?.nome || 'Guerreiro',
-        online: !!getSocketIdByUserId(id)
-      }))
-    } : null
-  });
-}
-
-function notifyFriendsOnline(userId) {
-  ensureUserData(userId);
-  for (const friendId of friends[userId]) {
-    sendSocialState(friendId);
-  }
-}
-
-function removeFromRoom(userId) {
-  for (const roomId of Object.keys(rooms)) {
-    const room = rooms[roomId];
-    if (!room.players.includes(userId)) continue;
-
-    room.players = room.players.filter(id => id !== userId);
-    const sid = getSocketIdByUserId(userId);
-    if (sid) io.sockets.sockets.get(sid)?.leave(roomId);
-    if (room.players.length === 0) {
-      delete rooms[roomId];
-    } else {
-      io.to(roomId).emit('roomUpdate', room);
-    }
-  }
-}
-
-io.use(async (socket, next) => {
-  try {
-    if (!pool) return next(new Error('Banco de dados não configurado.'));
-    const token = String(socket.handshake.auth?.token || '');
-    const account = await getSessionAccount(token);
-    if (!account) return next(new Error('Sessão inválida.'));
-    socket.data.account = account;
-    next();
-  } catch (e) { next(new Error('Falha na autenticação.')); }
-});
-
-io.on('connection', (socket) => {
-  console.log('Novo guerreiro conectou:', socket.id);
-
-  socket.on('join', async (data = {}) => {
-    const account=socket.data.account;
-    if(!account) return socket.emit('socialError',{message:'Faça login para jogar.'});
-    const char=await getCharacter(account.id, data.characterId || account.active_character_id);
-    const nome = safeText(char?.name || account.nick, 24) || account.nick || 'Guerreiro';
-    const userId = account.id;
-
-    // Se a mesma conta conectar novamente, substitui a conexão antiga.
-    const oldSocketId = getSocketIdByUserId(userId);
-    if (oldSocketId && oldSocketId !== socket.id) {
-      delete players[oldSocketId];
-    }
-
-    ensureUserData(userId, nome);
-
-    players[socket.id] = {
-      id: socket.id,
-      userId,
-      x: Number(data.x) || 0,
-      y: Number(data.y) || 0,
-      classe: char?.class_key || data.classe || 'guerreiro',
-      facing: data.facing || 1,
-      nome,
-      local: data.local || 'lobby',
-      status: 'online',
-      teamId: null,
-      characterId: char?.id || null,
-      characterColor: char?.color || '#39eaff'
-    };
-
-    socket.data.userId = userId;
-    socket.emit('connectedInfo', {
-      socketId: socket.id,
-      userId,
-      nome,
-      characterId: char?.id || null,
-      characterColor: char?.color || '#39eaff'
-    });
-
-    sendSocialState(userId);
-    emitPlayers();
-    notifyFriendsOnline(userId);
-
-    console.log(`${nome} entrou online (${socket.id})`);
-  });
-
-
-  socket.on('profileLookup', async (data={})=>{
-    try{ const q=safeText(data.query,40); const profiles=await publicProfilesSearch(q); socket.emit('profileLookupResult',{query:q,profiles}); }
-    catch(e){ socket.emit('socialError',{message:'Erro ao consultar perfil.'}); }
-  });
-
-  socket.on('myCharacters', async ()=>{ try{socket.emit('myCharactersResult',{characters:await getCharacters(socket.data.account.id)});}catch(e){socket.emit('socialError',{message:'Erro ao carregar personagens.'});} });
-
-  socket.on('createCharacter', async (data={})=>{
-    try{
-      const account=socket.data.account, name=safeText(data.name,20), classe=safeText(data.classe,20), color=safeText(data.color,7);
-      const allowed=['guerreiro','mago','arqueiro','duelista'];
-      if(!/^[\p{L}\p{N}_ .-]{2,20}$/u.test(name)||!allowed.includes(classe)||!/^#[0-9a-fA-F]{6}$/.test(color))return socket.emit('socialError',{message:'Nome, classe ou cor inválidos.'});
-      const count=await pool.query('SELECT COUNT(*)::int AS n FROM characters WHERE account_id=$1',[account.id]); if(count.rows[0].n>=8)return socket.emit('socialError',{message:'Limite de 8 personagens por conta.'});
-      const q=await pool.query('INSERT INTO characters(account_id,name,class_key,color) VALUES($1,$2,$3,$4) RETURNING id,name,class_key,color,created_at',[account.id,name,classe,color]);
-      if(!account.active_character_id){await pool.query('UPDATE accounts SET active_character_id=$1 WHERE id=$2',[q.rows[0].id,account.id]);account.active_character_id=q.rows[0].id;}
-      socket.emit('characterCreated',{character:q.rows[0]});
-    }catch(e){console.error(e);socket.emit('socialError',{message:'Não foi possível criar o personagem.'});}
-  });
-
-  socket.on('selectCharacter', async (data={})=>{
-    try{const account=socket.data.account,c=await getCharacter(account.id,data.id);if(!c)return socket.emit('socialError',{message:'Personagem não encontrado.'});await pool.query('UPDATE accounts SET active_character_id=$1 WHERE id=$2',[c.id,account.id]);account.active_character_id=c.id;socket.data.characterId=c.id;socket.emit('characterSelected',{character:c});}
-    catch(e){socket.emit('socialError',{message:'Não foi possível selecionar o personagem.'});}
-  });
-
-  socket.on('move', (data = {}) => {
-    const p = players[socket.id];
-    if (!p) return;
-
-    p.x = Number(data.x) || 0;
-    p.y = Number(data.y) || 0;
-    p.facing = data.facing || p.facing;
-    if (data.local) p.local = safeText(data.local, 30);
-
-    // Mantém o mesmo evento usado pelo jogo atual.
-    emitPlayers();
-  });
-
-  socket.on('setLocation', (data = {}) => {
-    const p = players[socket.id];
-    if (!p) return;
-
-    p.local = safeText(data.local, 30) || 'lobby';
-    emitPlayers();
-  });
-
-  // =========================
-  // CHAT
-  // =========================
-  socket.on('chatMessage', (data = {}) => {
-    const p = players[socket.id];
-    if (!p) return;
-
-    const text = safeText(data.text, 180);
-    if (!text) return;
-
-    io.emit('chatMessage', {
-      id: socket.id,
-      userId: p.userId,
-      nome: p.nome,
-      classe: p.classe,
-      text,
-      local: p.local || 'lobby',
-      time: Date.now()
-    });
-  });
-
-  // =========================
-  // AMIZADES
-  // =========================
-  socket.on('friendRequest', (data = {}) => {
-    const from = players[socket.id];
-    const targetId = safeText(data.userId, 80);
-    if (!from || !targetId || targetId === from.userId) return;
-
-    ensureUserData(from.userId, from.nome);
-    ensureUserData(targetId);
-
-    if (friends[from.userId].has(targetId)) {
-      socket.emit('socialError', { message: 'Vocês já são amigos.' });
-      return;
-    }
-
-    friendRequests[targetId].add(from.userId);
-
-    sendToUser(targetId, 'friendRequestReceived', {
-      id: from.userId,
-      nome: from.nome,
-      online: true
-    });
-
-    sendSocialState(targetId);
-    sendSocialState(from.userId);
-  });
-
-  socket.on('friendRequestRespond', (data = {}) => {
-    const me = players[socket.id];
-    const fromId = safeText(data.userId, 80);
-    const accept = !!data.accept;
-
-    if (!me || !fromId) return;
-    ensureUserData(me.userId);
-    ensureUserData(fromId);
-
-    friendRequests[me.userId].delete(fromId);
-
-    if (accept) {
-      friends[me.userId].add(fromId);
-      friends[fromId].add(me.userId);
-
-      sendToUser(fromId, 'friendAccepted', {
-        id: me.userId,
-        nome: me.nome
-      });
-    }
-
-    sendSocialState(me.userId);
-    sendSocialState(fromId);
-  });
-
-  socket.on('removeFriend', (data = {}) => {
-    const me = players[socket.id];
-    const otherId = safeText(data.userId, 80);
-    if (!me || !otherId) return;
-
-    friends[me.userId]?.delete(otherId);
-    friends[otherId]?.delete(me.userId);
-
-    sendSocialState(me.userId);
-    sendSocialState(otherId);
-  });
-
-  // =========================
-  // TIMES
-  // =========================
-  socket.on('createTeam', (data = {}) => {
-    const p = players[socket.id];
-    if (!p) return;
-
-    const oldTeam = Object.values(teams).find(t => t.members.includes(p.userId));
-    if (oldTeam) {
-      socket.emit('socialError', { message: 'Você já está em um time.' });
-      return;
-    }
-
-    const nome = safeText(data.nome, 28) || 'Time de Aço';
-    const teamId = `team_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-    teams[teamId] = {
-      id: teamId,
-      nome,
-      lider: p.userId,
-      members: [p.userId],
-      createdAt: Date.now()
-    };
-
-    p.teamId = teamId;
-
-    socket.emit('teamCreated', {
-      id: teamId,
-      nome
-    });
-
-    sendSocialState(p.userId);
-    emitPlayers();
-  });
-
-  socket.on('teamInvite', (data = {}) => {
-    const p = players[socket.id];
-    const targetId = safeText(data.userId, 80);
-    if (!p || !targetId) return;
-
-    const team = Object.values(teams).find(t => t.members.includes(p.userId));
-    if (!team || team.lider !== p.userId) {
-      socket.emit('socialError', { message: 'Somente o líder pode convidar para o time.' });
-      return;
-    }
-
-    if (team.members.length >= 6) {
-      socket.emit('socialError', { message: 'O time já está cheio (máximo 6 jogadores).' });
-      return;
-    }
-
-    ensureUserData(targetId);
-
-    invites[targetId] = invites[targetId] || [];
-    invites[targetId] = invites[targetId].filter(i => !(i.type === 'team' && i.teamId === team.id));
-    invites[targetId].push({
-      type: 'team',
-      teamId: team.id,
-      teamNome: team.nome,
-      fromId: p.userId,
-      fromNome: p.nome,
-      createdAt: Date.now()
-    });
-
-    sendToUser(targetId, 'teamInviteReceived', invites[targetId][invites[targetId].length - 1]);
-    sendSocialState(targetId);
-  });
-
-  socket.on('teamInviteRespond', (data = {}) => {
-    const p = players[socket.id];
-    const teamId = safeText(data.teamId, 100);
-    const accept = !!data.accept;
-
-    if (!p || !teamId) return;
-
-    const team = teams[teamId];
-    if (!team) {
-      socket.emit('socialError', { message: 'Esse time não existe mais.' });
-      return;
-    }
-
-    invites[p.userId] = (invites[p.userId] || []).filter(i =>
-      !(i.type === 'team' && i.teamId === teamId)
-    );
-
-    if (accept) {
-      const currentTeam = Object.values(teams).find(t => t.members.includes(p.userId));
-
-      if (currentTeam) {
-        socket.emit('socialError', { message: 'Você já está em um time.' });
-      } else if (team.members.length >= 6) {
-        socket.emit('socialError', { message: 'O time está cheio.' });
-      } else {
-        team.members.push(p.userId);
-        p.teamId = teamId;
-      }
-    }
-
-    sendSocialState(p.userId);
-    for (const memberId of team.members) sendSocialState(memberId);
-    emitPlayers();
-  });
-
-  socket.on('teamKick', (data = {}) => {
-    const p = players[socket.id];
-    const targetId = safeText(data.userId, 80);
-    if (!p || !targetId || targetId === p.userId) return;
-
-    const team = Object.values(teams).find(t => t.members.includes(p.userId));
-    if (!team || team.lider !== p.userId) {
-      socket.emit('socialError', { message: 'Somente o líder pode expulsar membros.' });
-      return;
-    }
-    if (!team.members.includes(targetId)) return;
-
-    team.members = team.members.filter(id => id !== targetId);
-    const targetSocket = getSocketIdByUserId(targetId);
-    if (targetSocket && players[targetSocket]) players[targetSocket].teamId = null;
-
-    sendToUser(targetId, 'teamKicked', { teamId: team.id, teamNome: team.nome });
-    sendSocialState(targetId);
-    for (const memberId of team.members) sendSocialState(memberId);
-    emitPlayers();
-  });
-
-  socket.on('leaveTeam', () => {
-    const p = players[socket.id];
-    if (!p) return;
-
-    const team = Object.values(teams).find(t => t.members.includes(p.userId));
-    if (!team) return;
-
-    if (team.lider === p.userId) {
-      // Passa a liderança para outro membro ou encerra o time.
-      const remaining = team.members.filter(id => id !== p.userId);
-
-      if (remaining.length === 0) {
-        delete teams[team.id];
-      } else {
-        team.members = remaining;
-        team.lider = remaining[0];
-      }
-    } else {
-      team.members = team.members.filter(id => id !== p.userId);
-    }
-
-    p.teamId = null;
-
-    sendSocialState(p.userId);
-    if (teams[team.id]) {
-      for (const memberId of teams[team.id].members) sendSocialState(memberId);
-    }
-    emitPlayers();
-  });
-
-  // =========================
-  // CONVITES PARA MODOS
-  // =========================
-  socket.on('gameInvite', (data = {}) => {
-    const p = players[socket.id];
-    const targetId = safeText(data.userId, 80);
-    const mode = safeText(data.mode, 30);
-
-    const allowed = ['campaign', 'survival', 'arena1v1', 'arena2v2', 'arena3v3'];
-    if (!p || !targetId || !allowed.includes(mode)) return;
-
-    ensureUserData(targetId);
-
-    const invite = {
-      type: 'game',
-      mode,
-      fromId: p.userId,
-      fromNome: p.nome,
-      createdAt: Date.now()
-    };
-
-    invites[targetId] = invites[targetId] || [];
-    invites[targetId].push(invite);
-
-    sendToUser(targetId, 'gameInviteReceived', invite);
-    sendSocialState(targetId);
-  });
-
-  socket.on('gameInviteRespond', (data = {}) => {
-    const p = players[socket.id];
-    if (!p) return;
-
-    const fromId = safeText(data.fromId, 80);
-    const mode = safeText(data.mode, 30);
-    const accept = !!data.accept;
-
-    if (accept) {
-      const roomId = `room_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-
-      rooms[roomId] = {
-        id: roomId,
-        mode,
-        host: fromId,
-        players: [fromId, p.userId],
-        maxPlayers: mode === 'arena1v1' ? 2 :
-                    mode === 'arena2v2' ? 4 :
-                    mode === 'arena3v3' ? 6 : 4,
-        status: 'waiting',
-        createdAt: Date.now()
-      };
-
-      for (const userId of rooms[roomId].players) {
-        const sid = getSocketIdByUserId(userId);
-        if (sid) {
-          io.sockets.sockets.get(sid)?.join(roomId);
-          io.to(sid).emit('gameRoomCreated', rooms[roomId]);
-        }
-      }
-    }
-
-    invites[p.userId] = (invites[p.userId] || []).filter(i =>
-      !(i.type === 'game' && i.fromId === fromId && i.mode === mode)
-    );
-
-    sendSocialState(p.userId);
-  });
-
-  // =========================
-  // SALAS / X1 / 2v2 / 3v3
-  // =========================
-  socket.on('createRoom', (data = {}) => {
-    const p = players[socket.id];
-    if (!p) return;
-
-    const mode = safeText(data.mode, 30);
-    const allowed = ['arena1v1', 'arena2v2', 'arena3v3', 'campaign', 'survival'];
-    if (!allowed.includes(mode)) return;
-
-    const maxPlayers = {
-      arena1v1: 2,
-      arena2v2: 4,
-      arena3v3: 6,
-      campaign: 4,
-      survival: 4
-    }[mode];
-
-    const roomId = `room_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    const team = Object.values(teams).find(t => t.members.includes(p.userId));
-    let roomPlayers = [p.userId];
-    // Para 2v2/3v3/campanha/sobrevivência, o líder pode levar automaticamente
-    // os companheiros online do próprio time, respeitando o limite da sala.
-    if (data.useTeam && team) {
-      const candidates = team.members.filter(id => id !== p.userId && getSocketIdByUserId(id));
-      roomPlayers = roomPlayers.concat(candidates.slice(0, Math.max(0, maxPlayers - 1)));
-    }
-
-    rooms[roomId] = {
-      id: roomId,
-      mode,
-      host: p.userId,
-      players: roomPlayers,
-      maxPlayers,
-      status: roomPlayers.length >= maxPlayers ? 'ready' : 'waiting',
-      createdAt: Date.now()
-    };
-
-    for (const userId of roomPlayers) {
-      const sid = getSocketIdByUserId(userId);
-      if (sid) {
-        io.sockets.sockets.get(sid)?.join(roomId);
-        io.to(sid).emit('gameRoomCreated', rooms[roomId]);
-      }
-    }
-    io.to(roomId).emit('roomUpdate', rooms[roomId]);
-    if (rooms[roomId].status === 'ready') io.to(roomId).emit('roomReady', rooms[roomId]);
-  });
-
-  socket.on('joinRoom', (data = {}) => {
-    const p = players[socket.id];
-    const roomId = safeText(data.roomId, 100);
-    if (!p || !rooms[roomId]) return;
-
-    const room = rooms[roomId];
-
-    if (room.players.includes(p.userId)) {
-      socket.join(roomId);
-      socket.emit('roomUpdate', room);
-      return;
-    }
-
-    if (room.players.length >= room.maxPlayers) {
-      socket.emit('socialError', { message: 'Essa sala está cheia.' });
-      return;
-    }
-
-    room.players.push(p.userId);
-    socket.join(roomId);
-
-    io.to(roomId).emit('roomUpdate', room);
-
-    if (room.players.length >= room.maxPlayers) {
-      room.status = 'ready';
-      io.to(roomId).emit('roomReady', room);
-    }
-  });
-
-  socket.on('leaveRoom', (data = {}) => {
-    const p = players[socket.id];
-    const roomId = safeText(data.roomId, 100);
-    if (!p || !rooms[roomId]) return;
-
-    const room = rooms[roomId];
-    room.players = room.players.filter(id => id !== p.userId);
-    socket.leave(roomId);
-
-    if (room.players.length === 0) {
-      delete rooms[roomId];
-    } else {
-      if (room.host === p.userId) room.host = room.players[0];
-      io.to(roomId).emit('roomUpdate', room);
-    }
-  });
-
-  socket.on('startRoom', (data = {}) => {
-    const p = players[socket.id];
-    const roomId = safeText(data.roomId, 100);
-    if (!p || !rooms[roomId]) return;
-
-    const room = rooms[roomId];
-    if (room.host !== p.userId) return;
-    if (['arena1v1','arena2v2','arena3v3'].includes(room.mode) && room.players.length < 2) {
-      socket.emit('socialError', { message: 'Adicione pelo menos mais um jogador antes de iniciar.' });
-      return;
-    }
-
-    room.status = 'started';
-    io.to(roomId).emit('gameStart', room);
-  });
-
-  // =========================
-  // DESCONEXÃO
-  // =========================
-  socket.on('disconnect', () => {
-    const p = players[socket.id];
-
-    if (p) {
-      console.log('Guerreiro desconectou:', socket.id, p.nome);
-
-      removeFromRoom(p.userId);
-      if (profiles[p.userId]) profiles[p.userId].lastSeen = Date.now();
-      delete players[socket.id];
-
-      emitPlayers();
-      notifyFriendsOnline(p.userId);
-    } else {
-      console.log('Guerreiro desconectou:', socket.id);
-    }
-  });
-});
+const io = new Server(server, { cors: { origin: '*', methods: ['GET','POST','OPTIONS'] } });
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true }));
+app.use((req,res,next)=>{ res.setHeader('Access-Control-Allow-Origin','*'); res.setHeader('Access-Control-Allow-Headers','Content-Type, Authorization'); res.setHeader('Access-Control-Allow-Methods','GET,POST,PUT,OPTIONS'); if(req.method==='OPTIONS')return res.sendStatus(204); next(); });
 
 const PORT = process.env.PORT || 3000;
+const DATABASE_URL = process.env.DATABASE_URL;
+const JWT_SECRET = process.env.RECOVERY_SECRET || process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
+if(!DATABASE_URL) console.warn('⚠️ DATABASE_URL não configurado. As contas não poderão ser persistidas.');
+const pool = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false }, max: 5 }) : null;
 
-initDatabase().then(()=>{
-  server.listen(PORT, () => {
-    console.log(`Servidor Reinos de Aço V10 rodando na porta ${PORT}`);
-  });
-}).catch(err=>{
-  console.error('❌ Falha ao iniciar banco:',err);
-  process.exit(1);
+const DEFAULT_PROGRESS = {
+  playerClass:null, characterColor:'#39eaff', gold:0, diamantes:0, codigosUsados:[], activeQuest:null,
+  questProgress:0, questTarget:0, questReward:0, questName:'', boosts:{xpTime:0}, xp:0, level:1,
+  attributePoints:0, attributes:{strength:0,defense:0,vitality:0,agility:0}, weapons:[], equippedWeapon:null,
+  hats:[], equippedHat:null, capes:[], equippedCape:null, skills:[], equippedSkill:null,
+  unlockedMaps:['floresta'], achievements:[], totalKills:0, totalDeaths:0, bossesDefeated:[],
+  premiumPass:false, elitePass:false
+};
+function safeText(v,max=180){return String(v??'').trim().slice(0,max)}
+function normPhone(v){return String(v||'').replace(/\D/g,'').replace(/^55/,'')}
+function normalizeNick(v){return safeText(v,20).replace(/\s+/g,' ')}
+function cleanColor(v){const s=String(v||'').trim();return /^#[0-9a-fA-F]{6}$/.test(s)?s:'#39eaff'}
+function cloneDefault(){return JSON.parse(JSON.stringify(DEFAULT_PROGRESS))}
+function mergeProgress(base, incoming){
+  const d=cloneDefault(); Object.assign(d, base||{}, incoming||{});
+  d.attributes=Object.assign({}, DEFAULT_PROGRESS.attributes, base?.attributes||{}, incoming?.attributes||{});
+  d.boosts=Object.assign({}, DEFAULT_PROGRESS.boosts, base?.boosts||{}, incoming?.boosts||{});
+  for(const k of ['codigosUsados','weapons','hats','capes','skills','unlockedMaps','achievements','bossesDefeated']) if(!Array.isArray(d[k])) d[k]=[];
+  d.gold=Math.max(0,Number(d.gold)||0); d.diamantes=Math.max(0,Number(d.diamantes)||0); d.xp=Math.max(0,Number(d.xp)||0); d.level=Math.max(1,Number(d.level)||1);
+  return d;
+}
+function idRA(){return 'RA-'+crypto.randomBytes(4).toString('hex').toUpperCase()+'-'+crypto.randomBytes(4).toString('hex').toUpperCase()}
+function signToken(account){return jwt.sign({sub:account.id},JWT_SECRET,{expiresIn:'365d'})}
+function auth(req,res,next){
+  try{const h=req.headers.authorization||'';const token=h.startsWith('Bearer ')?h.slice(7):'';if(!token)throw new Error('AUTH');const p=jwt.verify(token,JWT_SECRET);req.userId=p.sub;next()}catch(e){return res.status(401).json({error:'Sessão inválida ou expirada.'})}
+}
+async function q(text,params=[]){if(!pool)throw new Error('Banco de dados não configurado.');return pool.query(text,params)}
+
+async function initDB(){
+  if(!pool)return;
+  await q(`CREATE TABLE IF NOT EXISTS accounts(
+    id TEXT PRIMARY KEY, nick TEXT NOT NULL UNIQUE, phone TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL,
+    active_character_id TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  await q(`CREATE TABLE IF NOT EXISTS characters(
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    name TEXT NOT NULL, class_key TEXT NOT NULL, color TEXT NOT NULL DEFAULT '#39eaff', progress JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(account_id,name)
+  )`);
+  await q(`CREATE TABLE IF NOT EXISTS friendships(user_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, friend_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(user_id,friend_id))`);
+  await q(`CREATE TABLE IF NOT EXISTS friend_requests(from_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, to_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(from_id,to_id))`);
+  await q(`CREATE TABLE IF NOT EXISTS teams(id TEXT PRIMARY KEY, name TEXT NOT NULL, leader_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+  await q(`CREATE TABLE IF NOT EXISTS team_members(team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(team_id,user_id))`);
+  await q(`CREATE TABLE IF NOT EXISTS social_invites(id BIGSERIAL PRIMARY KEY, to_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, type TEXT NOT NULL, payload JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+  await q(`CREATE TABLE IF NOT EXISTS recovery_codes(phone TEXT NOT NULL, code_hash TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, used BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+  await q(`CREATE INDEX IF NOT EXISTS characters_account_idx ON characters(account_id)`);
+  console.log('✅ PostgreSQL conectado e tabelas verificadas.');
+}
+
+function accountPublic(r){return {id:r.id,nick:r.nick,phone:r.phone,activeCharacterId:r.active_character_id||null,createdAt:r.created_at}}
+function charPublic(r){return {id:r.id,name:r.name,class_key:r.class_key,classe:r.class_key,color:r.color,progress:mergeProgress(r.progress||{},{}),updatedAt:r.updated_at}}
+async function getAccount(id){const a=(await q('SELECT * FROM accounts WHERE id=$1',[id])).rows[0];if(!a)return null;const cs=(await q('SELECT * FROM characters WHERE account_id=$1 ORDER BY created_at',[id])).rows;return {account:accountPublic(a),characters:cs.map(charPublic)}}
+
+app.get('/',(req,res)=>res.send('Reinos de Aço V12 — servidor online ⚔️ PostgreSQL ativo'));
+app.get('/api/health',async(req,res)=>{try{if(pool)await q('SELECT 1');res.json({ok:true,version:'V12-CORRIGIDO',database:!!pool,time:Date.now()})}catch(e){res.status(500).json({ok:false,error:e.message})}});
+
+app.post('/api/auth/register',async(req,res)=>{try{
+  const nick=normalizeNick(req.body.nick), phone=normPhone(req.body.phone), pass=String(req.body.password||'');
+  if(nick.length<3)throw new Error('Nick precisa ter pelo menos 3 caracteres.');
+  if(phone.length<10||phone.length>13)throw new Error('WhatsApp inválido.');
+  if(pass.length<6)throw new Error('A senha precisa ter pelo menos 6 caracteres.');
+  const exists=await q('SELECT id FROM accounts WHERE nick=$1 OR phone=$2',[nick,phone]);if(exists.rows.length)throw new Error('Nick ou WhatsApp já cadastrado.');
+  const id=idRA(), hash=await bcrypt.hash(pass,12);const r=await q('INSERT INTO accounts(id,nick,phone,password_hash) VALUES($1,$2,$3,$4) RETURNING *',[id,nick,phone,hash]);
+  res.json({ok:true,token:signToken(r.rows[0]),account:accountPublic(r.rows[0]),whatsappUrl:`https://wa.me/55${phone}?text=${encodeURIComponent('Sua conta Reinos de Aço foi criada. ID: '+id)}`});
+}catch(e){console.error(e);res.status(400).json({error:e.message||'Não foi possível criar a conta.'})}});
+
+app.post('/api/auth/login',async(req,res)=>{try{
+  const login=safeText(req.body.login,80), key=login.replace(/\D/g,'');const pass=String(req.body.password||'');
+  const r=await q('SELECT * FROM accounts WHERE LOWER(nick)=LOWER($1) OR phone=$2 LIMIT 1',[login,key]);const a=r.rows[0];if(!a||!(await bcrypt.compare(pass,a.password_hash)))return res.status(401).json({error:'Nick/WhatsApp ou senha incorretos.'});
+  res.json({ok:true,token:signToken(a),account:accountPublic(a)});
+}catch(e){res.status(500).json({error:'Erro ao entrar.'})}});
+
+app.get('/api/me',auth,async(req,res)=>{try{const d=await getAccount(req.userId);if(!d)return res.status(404).json({error:'Conta não encontrada.'});res.json(d)}catch(e){res.status(500).json({error:e.message})}});
+
+app.post('/api/characters',auth,async(req,res)=>{try{
+  const name=normalizeNick(req.body.name), classe=safeText(req.body.classe,30)||'guerreiro', color=cleanColor(req.body.color);if(name.length<2)throw new Error('Nome do personagem inválido.');
+  const count=(await q('SELECT COUNT(*)::int AS n FROM characters WHERE account_id=$1',[req.userId])).rows[0].n;if(count>=8)throw new Error('Sua conta já possui 8 personagens.');
+  const progress=cloneDefault();progress.playerClass=classe;progress.characterColor=color;const r=await q('INSERT INTO characters(account_id,name,class_key,color,progress) VALUES($1,$2,$3,$4,$5) RETURNING *',[req.userId,name,classe,color,JSON.stringify(progress)]);const c=r.rows[0];
+  const a=await q('SELECT active_character_id FROM accounts WHERE id=$1',[req.userId]);if(!a.rows[0].active_character_id)await q('UPDATE accounts SET active_character_id=$1,updated_at=NOW() WHERE id=$2',[c.id,req.userId]);
+  res.json({ok:true,character:charPublic(c)});
+}catch(e){res.status(400).json({error:e.message||'Não foi possível criar personagem.'})}});
+
+app.post('/api/characters/select',auth,async(req,res)=>{try{const id=safeText(req.body.id,80);const r=await q('SELECT * FROM characters WHERE id::text=$1 AND account_id=$2',[id,req.userId]);if(!r.rows[0])return res.status(404).json({error:'Personagem não encontrado.'});await q('UPDATE accounts SET active_character_id=$1,updated_at=NOW() WHERE id=$2',[r.rows[0].id,req.userId]);res.json({ok:true,character:charPublic(r.rows[0])})}catch(e){res.status(400).json({error:e.message})}});
+
+app.put('/api/characters/:id/progress',auth,async(req,res)=>{try{
+  const id=safeText(req.params.id,80), r=await q('SELECT * FROM characters WHERE id::text=$1 AND account_id=$2',[id,req.userId]);if(!r.rows[0])return res.status(404).json({error:'Personagem não encontrado.'});
+  const progress=mergeProgress(r.rows[0].progress||{},req.body.progress||{});progress.playerClass=r.rows[0].class_key;progress.characterColor=r.rows[0].color;
+  const u=await q('UPDATE characters SET progress=$1,updated_at=NOW() WHERE id=$2 RETURNING *',[JSON.stringify(progress),r.rows[0].id]);res.json({ok:true,character:charPublic(u.rows[0])});
+}catch(e){console.error(e);res.status(400).json({error:'Não foi possível salvar o progresso.'})}});
+
+app.get('/api/profile',auth,async(req,res)=>{try{const query=safeText(req.query.q,80);if(!query)return res.json({profiles:[]});const qv=query.toLowerCase();const r=await q(`SELECT id,nick FROM accounts WHERE LOWER(nick) LIKE $1 OR LOWER(id)=LOWER($2) ORDER BY nick LIMIT 20`,['%'+qv+'%',query]);const out=[];for(const a of r.rows){const cs=(await q('SELECT id,name,class_key,color FROM characters WHERE account_id=$1 ORDER BY created_at',[a.id])).rows;out.push({id:a.id,nick:a.nick,online:!!getSocketIdByUserId(a.id),characters:cs.map(c=>({id:c.id,name:c.name,classe:c.class_key,color:c.color}))})}res.json({profiles:out})}catch(e){res.status(500).json({error:e.message})}});
+
+app.post('/api/auth/request-reset',async(req,res)=>{try{
+  const phone=normPhone(req.body.phone);const r=await q('SELECT id,nick FROM accounts WHERE phone=$1',[phone]);if(!r.rows[0])return res.json({ok:true,message:'Se o WhatsApp estiver cadastrado, a recuperação será enviada.'});
+  const code=String(Math.floor(100000+Math.random()*900000));const hash=await bcrypt.hash(code,10);await q('DELETE FROM recovery_codes WHERE phone=$1 OR expires_at<NOW()',[phone]);await q('INSERT INTO recovery_codes(phone,code_hash,expires_at) VALUES($1,$2,NOW()+INTERVAL \'15 minutes\')',[phone,hash]);
+  const msg=`Reinos de Aço — código de recuperação: ${code} (válido por 15 minutos). ID da conta: ${r.rows[0].id}`;res.json({ok:true,whatsappUrl:`https://wa.me/55${phone}?text=${encodeURIComponent(msg)}`,message:'Abra o WhatsApp para receber o código.'});
+}catch(e){res.status(500).json({error:'Erro ao gerar recuperação.'})}});
+app.post('/api/auth/reset-password',async(req,res)=>{try{
+  const phone=normPhone(req.body.phone),code=safeText(req.body.code,20),pass=String(req.body.newPassword||'');if(pass.length<6)throw new Error('A nova senha precisa ter pelo menos 6 caracteres.');
+  const r=await q('SELECT * FROM recovery_codes WHERE phone=$1 AND used=false AND expires_at>NOW() ORDER BY created_at DESC LIMIT 1',[phone]);if(!r.rows[0]||!(await bcrypt.compare(code,r.rows[0].code_hash)))throw new Error('Código inválido ou expirado.');
+  const a=(await q('UPDATE accounts SET password_hash=$1,updated_at=NOW() WHERE phone=$2 RETURNING *',[await bcrypt.hash(pass,12),phone])).rows[0];if(!a)throw new Error('Conta não encontrada.');await q('UPDATE recovery_codes SET used=true WHERE phone=$1',[phone]);res.json({ok:true,token:signToken(a),account:accountPublic(a)});
+}catch(e){res.status(400).json({error:e.message})}});
+
+// ---------- Multiplayer/social persistente ----------
+const players={};const rooms={};
+function getSocketIdByUserId(uid){for(const sid of Object.keys(players))if(players[sid].userId===uid)return sid;return null}
+function sendToUser(uid,event,data){const sid=getSocketIdByUserId(uid);if(sid)io.to(sid).emit(event,data)}
+function publicPlayer(sid){const p=players[sid];if(!p)return null;return {id:p.id,userId:p.userId,characterId:p.characterId,x:p.x,y:p.y,classe:p.classe,color:p.color,facing:p.facing,nome:p.nome,local:p.local,status:'online',teamId:p.teamId||null}}
+async function socialState(uid){
+  const fs=(await q(`SELECT a.id,a.nick FROM accounts a JOIN friendships f ON f.friend_id=a.id WHERE f.user_id=$1 ORDER BY a.nick`,[uid])).rows;
+  const reqs=(await q(`SELECT a.id,a.nick FROM accounts a JOIN friend_requests r ON r.from_id=a.id WHERE r.to_id=$1 ORDER BY r.created_at`,[uid])).rows;
+  const inv=(await q(`SELECT id,type,payload,created_at FROM social_invites WHERE to_id=$1 ORDER BY created_at DESC LIMIT 30`,[uid])).rows;
+  const tm=(await q(`SELECT t.id,t.name,t.leader_id FROM teams t JOIN team_members m ON m.team_id=t.id WHERE m.user_id=$1 LIMIT 1`,[uid])).rows[0];let team=null;
+  if(tm){const ms=(await q(`SELECT a.id,a.nick FROM accounts a JOIN team_members m ON m.user_id=a.id WHERE m.team_id=$1 ORDER BY m.joined_at`,[tm.id])).rows;team={id:tm.id,nome:tm.name,lider:tm.leader_id,members:ms.map(x=>({id:x.id,nome:x.nick,online:!!getSocketIdByUserId(x.id)}))}}
+  return {friends:fs.map(x=>({id:x.id,nome:x.nick,online:!!getSocketIdByUserId(x.id),player:getSocketIdByUserId(x.id)?publicPlayer(getSocketIdByUserId(x.id)):null})),requests:reqs.map(x=>({id:x.id,nome:x.nick,online:!!getSocketIdByUserId(x.id)})),invites:inv.map(x=>Object.assign({id:x.id,type:x.type,createdAt:x.created_at},x.payload||{})),team}
+}
+async function sendSocialState(uid){try{sendToUser(uid,'socialState',await socialState(uid))}catch(e){console.error('socialState',e.message)}}
+async function broadcastSocial(uid){const st=await socialState(uid);sendToUser(uid,'socialState',st)}
+function emitPlayers(){const out={};for(const sid of Object.keys(players))out[sid]=publicPlayer(sid);io.emit('updatePlayers',out)}
+function removeUserFromRooms(uid){for(const rid of Object.keys(rooms)){const r=rooms[rid];if(!r.players.includes(uid))continue;r.players=r.players.filter(x=>x!==uid);if(!r.players.length)delete rooms[rid];else{if(r.host===uid)r.host=r.players[0];io.to(rid).emit('roomUpdate',r)}}}
+
+io.use((socket,next)=>{try{const token=socket.handshake.auth?.token||'';const p=jwt.verify(token,JWT_SECRET);socket.data.userId=p.sub;next()}catch(e){const er=new Error('AUTH_REQUIRED');er.data={code:'AUTH_REQUIRED'};next(er)}});
+io.on('connection',socket=>{
+  socket.on('join',async(data={})=>{try{
+    const uid=socket.data.userId;const acc=await getAccount(uid);if(!acc)return;const old=getSocketIdByUserId(uid);if(old&&old!==socket.id){delete players[old]}
+    const cid=safeText(data.characterId,80)||String(acc.account.activeCharacterId||'');const c=acc.characters.find(x=>String(x.id)===cid)||acc.characters[0];
+    players[socket.id]={id:socket.id,userId:uid,characterId:c?.id||null,nome:c?.name||acc.account.nick,classe:c?.class_key||'guerreiro',color:c?.color||'#39eaff',x:Number(data.x)||1400,y:Number(data.y)||1400,facing:Number(data.facing)||0,local:safeText(data.local,30)||'lobby',teamId:null};
+    const tm=(await q('SELECT team_id FROM team_members WHERE user_id=$1 LIMIT 1',[uid])).rows[0];if(tm)players[socket.id].teamId=tm.team_id;
+    socket.emit('connectedInfo',{socketId:socket.id,userId:uid,nome:players[socket.id].nome});await sendSocialState(uid);emitPlayers();
+  }catch(e){console.error('join',e)}});
+  socket.on('move',(d={})=>{const p=players[socket.id];if(!p)return;p.x=Number(d.x)||p.x;p.y=Number(d.y)||p.y;p.facing=Number(d.facing)||p.facing;if(d.local)p.local=safeText(d.local,30);emitPlayers()});
+  socket.on('setLocation',d=>{const p=players[socket.id];if(!p)return;p.local=safeText(d.local,30)||'lobby';emitPlayers()});
+  socket.on('chatMessage',d=>{const p=players[socket.id];if(!p)return;const text=safeText(d.text,180);if(!text)return;io.emit('chatMessage',{id:socket.id,userId:p.userId,nome:p.nome,name:p.nome,classe:p.classe,text,local:p.local,time:Date.now()})});
+  socket.on('profileLookup',async d=>{try{const r=await q(`SELECT id,nick FROM accounts WHERE LOWER(nick) LIKE $1 OR LOWER(id)=LOWER($2) ORDER BY nick LIMIT 20`,['%'+safeText(d.query,80).toLowerCase()+'%',safeText(d.query,80)]);const ps=[];for(const a of r.rows){const cs=(await q('SELECT id,name,class_key,color FROM characters WHERE account_id=$1 ORDER BY created_at',[a.id])).rows;ps.push({id:a.id,nick:a.nick,online:!!getSocketIdByUserId(a.id),characters:cs.map(c=>({id:c.id,name:c.name,classe:c.class_key,color:c.color}))})}socket.emit('profileLookupResult',{profiles:ps})}catch(e){socket.emit('socialError',{message:e.message})}});
+  socket.on('getFriendRequests',()=>sendSocialState(socket.data.userId));
+  socket.on('friendRequest',async d=>{try{const from=socket.data.userId,to=safeText(d.userId,80);if(!to||to===from)return;const a=await q('SELECT id,nick FROM accounts WHERE id=$1',[to]);if(!a.rows[0])return socket.emit('socialError',{message:'Jogador não encontrado.'});const already=await q('SELECT 1 FROM friendships WHERE user_id=$1 AND friend_id=$2',[from,to]);if(already.rows[0])return socket.emit('socialError',{message:'Vocês já são amigos.'});await q(`INSERT INTO friend_requests(from_id,to_id) VALUES($1,$2) ON CONFLICT DO NOTHING`,[from,to]);const me=await q('SELECT nick FROM accounts WHERE id=$1',[from]);sendToUser(to,'friendRequestReceived',{id:from,nome:me.rows[0].nick,online:true});await sendSocialState(to);await sendSocialState(from)}catch(e){socket.emit('socialError',{message:e.message})}});
+  socket.on('friendRequestRespond',async d=>{try{const me=socket.data.userId,from=safeText(d.userId,80);const rq=await q('DELETE FROM friend_requests WHERE from_id=$1 AND to_id=$2 RETURNING *',[from,me]);if(!rq.rows[0])return;if(d.accept){await q('INSERT INTO friendships(user_id,friend_id) VALUES($1,$2) ON CONFLICT DO NOTHING',[me,from]);await q('INSERT INTO friendships(user_id,friend_id) VALUES($1,$2) ON CONFLICT DO NOTHING',[from,me]);sendToUser(from,'friendAccepted',{id:me})}await sendSocialState(me);await sendSocialState(from)}catch(e){socket.emit('socialError',{message:e.message})}});
+  socket.on('removeFriend',async d=>{const me=socket.data.userId,o=safeText(d.userId,80);await q('DELETE FROM friendships WHERE (user_id=$1 AND friend_id=$2) OR (user_id=$2 AND friend_id=$1)',[me,o]);await sendSocialState(me);await sendSocialState(o)});
+  socket.on('createTeam',async d=>{try{const uid=socket.data.userId;const old=await q('SELECT team_id FROM team_members WHERE user_id=$1 LIMIT 1',[uid]);if(old.rows[0])return socket.emit('socialError',{message:'Você já está em um time.'});const name=safeText(d.nome,28)||'Time de Aço',id='team_'+Date.now()+'_'+crypto.randomBytes(3).toString('hex');await q('INSERT INTO teams(id,name,leader_id) VALUES($1,$2,$3)',[id,name,uid]);await q('INSERT INTO team_members(team_id,user_id) VALUES($1,$2)',[id,uid]);socket.emit('teamCreated',{id,nome:name});await sendSocialState(uid);emitPlayers()}catch(e){socket.emit('socialError',{message:e.message})}});
+  socket.on('teamInvite',async d=>{try{const uid=socket.data.userId,to=safeText(d.userId,80);const tm=(await q('SELECT t.* FROM teams t JOIN team_members m ON m.team_id=t.id WHERE m.user_id=$1 AND t.leader_id=$1 LIMIT 1',[uid])).rows[0];if(!tm)return socket.emit('socialError',{message:'Somente o líder pode convidar.'});const n=(await q('SELECT COUNT(*)::int n FROM team_members WHERE team_id=$1',[tm.id])).rows[0].n;if(n>=6)return socket.emit('socialError',{message:'O time já está cheio.'});const me=(await q('SELECT nick FROM accounts WHERE id=$1',[uid])).rows[0];const inv={type:'team',teamId:tm.id,teamNome:tm.name,fromId:uid,fromNome:me.nick};await q('INSERT INTO social_invites(to_id,type,payload) VALUES($1,$2,$3)',[to,'team',JSON.stringify(inv)]);sendToUser(to,'teamInviteReceived',inv);await sendSocialState(to)}catch(e){socket.emit('socialError',{message:e.message})}});
+  socket.on('teamInviteRespond',async d=>{try{const uid=socket.data.userId,tid=safeText(d.teamId,100);await q("DELETE FROM social_invites WHERE to_id=$1 AND type='team' AND payload->>'teamId'=$2",[uid,tid]);if(d.accept){const n=(await q('SELECT COUNT(*)::int n FROM team_members WHERE team_id=$1',[tid])).rows[0]?.n||0;if(n>=6)return socket.emit('socialError',{message:'O time está cheio.'});const old=await q('SELECT 1 FROM team_members WHERE user_id=$1 LIMIT 1',[uid]);if(old.rows[0])return socket.emit('socialError',{message:'Você já está em um time.'});await q('INSERT INTO team_members(team_id,user_id) VALUES($1,$2)',[tid,uid]);}const mem=(await q('SELECT user_id FROM team_members WHERE team_id=$1',[tid])).rows;for(const m of mem)await sendSocialState(m.user_id);emitPlayers()}catch(e){socket.emit('socialError',{message:e.message})}});
+  socket.on('teamKick',async d=>{try{const uid=socket.data.userId,to=safeText(d.userId,80);const tm=(await q('SELECT t.* FROM teams t JOIN team_members m ON m.team_id=t.id WHERE m.user_id=$1 AND t.leader_id=$1 LIMIT 1',[uid])).rows[0];if(!tm)return;await q('DELETE FROM team_members WHERE team_id=$1 AND user_id=$2',[tm.id,to]);await sendSocialState(to);const mem=(await q('SELECT user_id FROM team_members WHERE team_id=$1',[tm.id])).rows;for(const m of mem)await sendSocialState(m.user_id);emitPlayers()}catch(e){}});
+  socket.on('leaveTeam',async()=>{try{const uid=socket.data.userId;const tm=(await q('SELECT t.* FROM teams t JOIN team_members m ON m.team_id=t.id WHERE m.user_id=$1 LIMIT 1',[uid])).rows[0];if(!tm)return;await q('DELETE FROM team_members WHERE team_id=$1 AND user_id=$2',[tm.id,uid]);const rem=(await q('SELECT user_id FROM team_members WHERE team_id=$1 ORDER BY joined_at',[tm.id])).rows;if(tm.leader_id===uid){if(rem.length)await q('UPDATE teams SET leader_id=$1 WHERE id=$2',[rem[0].user_id,tm.id]);else await q('DELETE FROM teams WHERE id=$1',[tm.id])}await sendSocialState(uid);for(const m of rem)await sendSocialState(m.user_id);emitPlayers()}catch(e){}});
+  socket.on('gameInvite',async d=>{try{const uid=socket.data.userId,to=safeText(d.userId,80),mode=safeText(d.mode,30);if(!['campaign','survival','arena1v1','arena2v2','arena3v3'].includes(mode))return;const me=(await q('SELECT nick FROM accounts WHERE id=$1',[uid])).rows[0];const inv={type:'game',mode,fromId:uid,fromNome:me.nick};await q('INSERT INTO social_invites(to_id,type,payload) VALUES($1,$2,$3)',[to,'game',JSON.stringify(inv)]);sendToUser(to,'gameInviteReceived',inv);await sendSocialState(to)}catch(e){}});
+  socket.on('gameInviteRespond',async d=>{try{const uid=socket.data.userId,from=safeText(d.fromId,80),mode=safeText(d.mode,30);await q("DELETE FROM social_invites WHERE to_id=$1 AND type='game' AND payload->>'fromId'=$2 AND payload->>'mode'=$3",[uid,from,mode]);if(!d.accept)return;createRoomFor([from,uid],mode)}catch(e){socket.emit('socialError',{message:e.message})}});
+  socket.on('createRoom',async d=>{const uid=socket.data.userId;const mode=safeText(d.mode,30);if(!['arena1v1','arena2v2','arena3v3','campaign','survival'].includes(mode))return;let ids=[uid];if(d.useTeam){const tm=(await q('SELECT team_id FROM team_members WHERE user_id=$1 LIMIT 1',[uid])).rows[0];if(tm)ids=(await q('SELECT user_id FROM team_members WHERE team_id=$1 ORDER BY joined_at',[tm.team_id])).rows.map(x=>x.user_id)}createRoomFor(ids,mode)});
+  socket.on('joinRoom',d=>{const uid=socket.data.userId,r=rooms[safeText(d.roomId,100)];if(!r)return;if(!r.players.includes(uid)&&r.players.length<r.maxPlayers)r.players.push(uid);const sid=getSocketIdByUserId(uid);if(sid)io.sockets.sockets.get(sid)?.join(r.id);io.to(r.id).emit('roomUpdate',r);if(r.players.length>=r.maxPlayers){r.status='ready';io.to(r.id).emit('roomReady',r)}});
+  socket.on('leaveRoom',d=>{const uid=socket.data.userId,r=rooms[safeText(d.roomId,100)];if(!r)return;r.players=r.players.filter(x=>x!==uid);socket.leave(r.id);if(!r.players.length)delete rooms[r.id];else{if(r.host===uid)r.host=r.players[0];io.to(r.id).emit('roomUpdate',r)}});
+  socket.on('startRoom',d=>{const uid=socket.data.userId,r=rooms[safeText(d.roomId,100)];if(!r||r.host!==uid)return;r.status='started';io.to(r.id).emit('gameStart',r)});
+  socket.on('disconnect',()=>{const p=players[socket.id];if(p){removeUserFromRooms(p.userId);delete players[socket.id];emitPlayers();for(const f of [] ){} }});
 });
+async function createRoomFor(ids,mode){const max={arena1v1:2,arena2v2:4,arena3v3:6,campaign:4,survival:4}[mode]||4;const playersIds=[...new Set(ids)].filter(x=>getSocketIdByUserId(x)).slice(0,max);if(!playersIds.length)return;const id='room_'+Date.now()+'_'+crypto.randomBytes(3).toString('hex');rooms[id]={id,mode,host:playersIds[0],players:playersIds,maxPlayers:max,status:playersIds.length>=max?'ready':'waiting',createdAt:Date.now()};for(const uid of playersIds){const sid=getSocketIdByUserId(uid);if(sid)io.sockets.sockets.get(sid)?.join(id);sendToUser(uid,'gameRoomCreated',rooms[id])}io.to(id).emit('roomUpdate',rooms[id]);if(rooms[id].status==='ready')io.to(id).emit('roomReady',rooms[id])}
+
+initDB().then(()=>server.listen(PORT,()=>console.log(`🚀 Servidor Reinos de Aço V12 CORRIGIDO rodando na porta ${PORT}`))).catch(e=>{console.error('❌ Falha ao iniciar:',e);process.exit(1)});
