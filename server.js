@@ -54,7 +54,7 @@ async function initDB(){
     active_character_id TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`);
   await q(`CREATE TABLE IF NOT EXISTS characters(
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    id UUID PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     name TEXT NOT NULL, class_key TEXT NOT NULL, color TEXT NOT NULL DEFAULT '#39eaff', progress JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(account_id,name)
   )`);
@@ -96,7 +96,7 @@ app.get('/api/me',auth,async(req,res)=>{try{const d=await getAccount(req.userId)
 app.post('/api/characters',auth,async(req,res)=>{try{
   const name=normalizeNick(req.body.name), classe=safeText(req.body.classe,30)||'guerreiro', color=cleanColor(req.body.color);if(name.length<2)throw new Error('Nome do personagem inválido.');
   const count=(await q('SELECT COUNT(*)::int AS n FROM characters WHERE account_id=$1',[req.userId])).rows[0].n;if(count>=8)throw new Error('Sua conta já possui 8 personagens.');
-  const progress=cloneDefault();progress.playerClass=classe;progress.characterColor=color;const r=await q('INSERT INTO characters(account_id,name,class_key,color,progress) VALUES($1,$2,$3,$4,$5) RETURNING *',[req.userId,name,classe,color,JSON.stringify(progress)]);const c=r.rows[0];
+  const progress=cloneDefault();progress.playerClass=classe;progress.characterColor=color;const characterId=crypto.randomUUID();const r=await q('INSERT INTO characters(id,account_id,name,class_key,color,progress) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',[characterId,req.userId,name,classe,color,JSON.stringify(progress)]);const c=r.rows[0];
   const a=await q('SELECT active_character_id FROM accounts WHERE id=$1',[req.userId]);if(!a.rows[0].active_character_id)await q('UPDATE accounts SET active_character_id=$1,updated_at=NOW() WHERE id=$2',[c.id,req.userId]);
   res.json({ok:true,character:charPublic(c)});
 }catch(e){res.status(400).json({error:e.message||'Não foi possível criar personagem.'})}});
