@@ -1,14 +1,9 @@
 {
-  "name": "reinos-de-aco-server",
-  "version": "2.0.0",
-  "description": "Reinos de Aço V10 - contas PostgreSQL, personagens, perfis, amigos, times, salas e recuperação via WhatsApp",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "dependencies": {
-    "express": "^4.21.2",
-    "socket.io": "^4.8.1",
-    "pg": "^8.16.3"
-  }
+  "name":"reinos-de-aco-server",
+  "version":"12.0.1",
+  "private":true,
+  "main":"server.js",
+  "scripts":{"start":"node server.js"},
+  "engines":{"node":">=18"},
+  "dependencies":{"bcryptjs":"^2.4.3","express":"^4.21.2","jsonwebtoken":"^9.0.2","pg":"^8.13.1","socket.io":"^4.8.1"}
 }
