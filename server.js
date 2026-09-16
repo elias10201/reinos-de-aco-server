@@ -58,6 +58,15 @@ async function initDB(){
     name TEXT NOT NULL, class_key TEXT NOT NULL, color TEXT NOT NULL DEFAULT '#39eaff', progress JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(account_id,name)
   )`);
+
+  // MIGRAÇÃO DE BANCO: versões antigas podem ter criado a tabela characters
+  // sem as colunas novas. Nunca apagamos a tabela nem os personagens existentes.
+  await q(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS active_character_id TEXT`);
+  await q(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS progress JSONB NOT NULL DEFAULT '{}'::jsonb`);
+  await q(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+  await q(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+  await q(`UPDATE characters SET progress='{}'::jsonb WHERE progress IS NULL`);
+  await q(`UPDATE characters SET updated_at=COALESCE(updated_at,created_at,NOW()) WHERE updated_at IS NULL`);
   await q(`CREATE TABLE IF NOT EXISTS friendships(user_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, friend_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(user_id,friend_id))`);
   await q(`CREATE TABLE IF NOT EXISTS friend_requests(from_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, to_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(from_id,to_id))`);
   await q(`CREATE TABLE IF NOT EXISTS teams(id TEXT PRIMARY KEY, name TEXT NOT NULL, leader_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
@@ -65,7 +74,7 @@ async function initDB(){
   await q(`CREATE TABLE IF NOT EXISTS social_invites(id BIGSERIAL PRIMARY KEY, to_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, type TEXT NOT NULL, payload JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
   await q(`CREATE TABLE IF NOT EXISTS recovery_codes(phone TEXT NOT NULL, code_hash TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, used BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
   await q(`CREATE INDEX IF NOT EXISTS characters_account_idx ON characters(account_id)`);
-  console.log('✅ PostgreSQL conectado e tabelas verificadas.');
+  console.log('✅ PostgreSQL conectado, tabelas verificadas e migrações aplicadas.');
 }
 
 function accountPublic(r){return {id:r.id,nick:r.nick,phone:r.phone,activeCharacterId:r.active_character_id||null,createdAt:r.created_at}}
@@ -99,7 +108,7 @@ app.post('/api/characters',auth,async(req,res)=>{try{
   const progress=cloneDefault();progress.playerClass=classe;progress.characterColor=color;const characterId=crypto.randomUUID();const r=await q('INSERT INTO characters(id,account_id,name,class_key,color,progress) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',[characterId,req.userId,name,classe,color,JSON.stringify(progress)]);const c=r.rows[0];
   const a=await q('SELECT active_character_id FROM accounts WHERE id=$1',[req.userId]);if(!a.rows[0].active_character_id)await q('UPDATE accounts SET active_character_id=$1,updated_at=NOW() WHERE id=$2',[c.id,req.userId]);
   res.json({ok:true,character:charPublic(c)});
-}catch(e){res.status(400).json({error:e.message||'Não foi possível criar personagem.'})}});
+}catch(e){console.error('❌ POST /api/characters:',e);res.status(400).json({error:e.message||'Não foi possível criar personagem.'})}});
 
 app.post('/api/characters/select',auth,async(req,res)=>{try{const id=safeText(req.body.id,80);const r=await q('SELECT * FROM characters WHERE id::text=$1 AND account_id=$2',[id,req.userId]);if(!r.rows[0])return res.status(404).json({error:'Personagem não encontrado.'});await q('UPDATE accounts SET active_character_id=$1,updated_at=NOW() WHERE id=$2',[r.rows[0].id,req.userId]);res.json({ok:true,character:charPublic(r.rows[0])})}catch(e){res.status(400).json({error:e.message})}});
 
