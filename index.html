@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,maximum-scale=1">
-<title>Reinos de Aço - Versão Mágica Premium</title>
+<title>Reinos de Aço - Versão Mágica Premium V12 Corrigida</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:none}
 html,body{width:100%;height:100%;overflow:hidden;background:#0a0a0a;font-family:'Segoe UI',Trebuchet MS,sans-serif;color:#fff;position:fixed}
@@ -205,10 +205,32 @@ body.social-mode #socialHub{pointer-events:auto}
 #characterGate{position:fixed;inset:0;z-index:5900;background:rgba(0,0,0,.96);display:none;align-items:center;justify-content:center;padding:16px;overflow:auto}.charCard{width:min(700px,96vw);max-height:92vh;overflow:auto;background:linear-gradient(145deg,#101827,#04070c);border:1px solid rgba(255,211,78,.35);border-radius:22px;padding:20px}.charList{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:9px}.charItem{padding:12px;border-radius:15px;border:1px solid rgba(57,234,255,.18);background:rgba(255,255,255,.035)}.charDot{width:18px;height:18px;border-radius:50%;display:inline-block;vertical-align:middle;border:2px solid #fff;box-shadow:0 0 12px currentColor}.charForm{display:grid;grid-template-columns:1fr 130px;gap:7px}.charForm select,.charForm input[type=text]{width:100%;background:#07101a;color:#fff;border:1px solid #294354;border-radius:10px;padding:11px;box-sizing:border-box}.charForm input[type=color]{width:100%;height:42px;padding:2px;background:#07101a;border:1px solid #294354;border-radius:10px}.profileBox{margin-top:12px;padding:14px;border:1px solid rgba(57,234,255,.18);border-radius:14px;background:rgba(255,255,255,.03)}
 @media(max-width:560px){.charForm{grid-template-columns:1fr}.authCard{padding:16px}}
 
+
+/* ===== V11 — INTERFACE HORIZONTAL PROFISSIONAL ===== */
+body{min-width:100vw;min-height:100vh}
+#portraitBlock{position:fixed;inset:0;z-index:99999;display:none;background:radial-gradient(circle at 50% 35%,#17283c 0%,#05070d 62%);align-items:center;justify-content:center;text-align:center;padding:25px}
+#portraitBlock .pbCard{max-width:430px;border:1px solid rgba(57,234,255,.35);border-radius:24px;padding:28px;background:rgba(5,10,18,.92);box-shadow:0 20px 60px #000}
+#portraitBlock .pbIcon{font-size:58px;margin-bottom:12px}
+#portraitBlock h2{color:#ffd34e;margin-bottom:8px}.pbCard p{color:#b9c7d5;line-height:1.5;font-size:14px}
+@media (orientation:portrait){#portraitBlock{display:flex}}
+.v11Menu{width:min(1120px,96vw);height:min(700px,94vh);display:grid;grid-template-columns:1.15fr 1fr;gap:22px;align-items:stretch}
+.v11Hero{position:relative;overflow:hidden;border:1px solid rgba(57,234,255,.25);border-radius:28px;background:linear-gradient(145deg,rgba(16,27,43,.96),rgba(4,8,15,.97));padding:34px;display:flex;flex-direction:column;justify-content:center;box-shadow:0 20px 70px rgba(0,0,0,.65),inset 0 0 50px rgba(57,234,255,.035)}
+.v11Hero:before{content:'';position:absolute;width:420px;height:420px;border-radius:50%;right:-180px;top:-180px;background:radial-gradient(circle,rgba(57,234,255,.13),transparent 68%)}
+.v11Kicker{font-size:12px;letter-spacing:4px;color:#39eaff;font-weight:900;margin-bottom:10px}.v11Title{font-size:clamp(38px,5vw,68px);line-height:.95;color:#fff;margin:0 0 16px;text-shadow:0 0 24px rgba(57,234,255,.12)}.v11Title span{color:#ffd34e}.v11Sub{color:#9fb0c2;max-width:470px;line-height:1.55;margin-bottom:24px}
+.v11Start{width:100%;max-width:470px;padding:19px 25px!important;font-size:22px!important;letter-spacing:1px;background:linear-gradient(180deg,#e2b83d,#8c5c08)!important;border-color:#ffe98a!important;box-shadow:0 0 28px rgba(255,211,78,.2),0 12px 30px rgba(0,0,0,.5)!important}
+.v11Mode{display:flex;gap:8px;flex-wrap:wrap;max-width:470px}.v11Mode button{min-width:0!important;flex:1;padding:10px 12px!important;font-size:12px!important;background:rgba(255,255,255,.045)!important;border:1px solid rgba(255,255,255,.12)!important}.v11Mode button.active{border-color:#39eaff!important;box-shadow:0 0 18px rgba(57,234,255,.14);color:#fff}
+.v11Right{display:flex;flex-direction:column;gap:12px;min-height:0}.v11TopStats{display:flex;justify-content:space-between;gap:10px}.v11Stat{flex:1;padding:13px 16px;border-radius:16px;background:rgba(7,12,21,.9);border:1px solid rgba(255,255,255,.09);color:#b8c7d5;font-size:12px}.v11Stat b{display:block;color:#fff;font-size:17px;margin-top:3px}.v11Actions{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;overflow:auto;padding-right:3px}.v11Actions button{min-width:0!important;width:auto!important;margin:0!important;padding:16px 12px!important;border-radius:16px!important;font-size:14px!important;background:linear-gradient(145deg,rgba(20,31,48,.98),rgba(6,10,17,.98))!important;border:1px solid rgba(57,234,255,.16)!important}.v11Actions button:hover{border-color:#39eaff!important}.v11Footer{margin-top:auto;color:#68798a;font-size:11px;text-align:center;padding:8px}
+@media(max-height:600px){.v11Menu{height:94vh;gap:12px}.v11Hero{padding:22px}.v11Sub{margin-bottom:12px}.v11Start{padding:13px 20px!important}.v11Actions button{padding:11px!important}.v11Stat{padding:8px 10px}}
+
+.v11Mode button{min-width:110px}
+#passesPanel .shopItem{margin:10px 0}
+@media(max-width:850px){.graphicsOptions{grid-template-columns:repeat(2,1fr)}.v11Mode{overflow-x:auto;justify-content:flex-start}}
 </style>
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js">\n\n</script>
+<meta name="reinos-version" content="V12 TESTE">
 </head>
 <body>
+<div id="portraitBlock"><div class="pbCard"><div class="pbIcon">📲</div><h2>Reinos de Aço</h2><p>Este jogo foi configurado para jogar somente na horizontal. Gire o aparelho para a posição deitada para continuar.</p></div></div>
 <div id="authGate">
   <div class="authCard">
     <h1>⚔️ REINOS DE AÇO</h1><div class="authSub">Sua conta fica salva no servidor. Entre pelo WhatsApp ou Nick.</div>
@@ -280,7 +302,7 @@ body.social-mode #socialHub{pointer-events:auto}
 </div>
 <button id="mobileMenuBtn" onclick="backToMenu()">☰ MENU</button>
 
-<div id="orientationPanel">
+<div id="orientationPanel" style="display:none!important">
   <div class="orientationCard">
     <h2>📱 Orientação da tela</h2>
     <p>Escolha como você prefere jogar. No APK, a opção escolhida pode ser aplicada sem depender da rotação automática do celular.</p>
@@ -299,6 +321,7 @@ body.social-mode #socialHub{pointer-events:auto}
     <h2>⚙️ Qualidade dos Gráficos</h2>
     <p>Escolha o nível de renderização para equilibrar beleza e desempenho no seu celular. A opção é salva automaticamente.</p>
     <div class="graphicsOptions">
+      <button class="graphicsOption" data-quality="ultraMax" onclick="setGraphicsQuality('ultraMax')"><span class="gIcon">🪶</span><b>Ultra Leve Max</b><small>Celulares fracos • máximo FPS</small></button>
       <button class="graphicsOption" data-quality="ultra" onclick="setGraphicsQuality('ultra')"><span class="gIcon">🪶</span><b>Ultra Leve</b><small>Máximo FPS • mínimo peso</small></button>
       <button class="graphicsOption" data-quality="low" onclick="setGraphicsQuality('low')"><span class="gIcon">🚀</span><b>Leve</b><small>Mais FPS • menos efeitos</small></button>
       <button class="graphicsOption" data-quality="medium" onclick="setGraphicsQuality('medium')"><span class="gIcon">⚡</span><b>Médio</b><small>Equilíbrio • recomendado</small></button>
@@ -379,67 +402,66 @@ body.social-mode #socialHub{pointer-events:auto}
 
 <!-- LOBBY PRINCIPAL -->
 <div class="menu hidden" id="mainMenu">
-  <div id="lobbyHeader">
-    <span style="color:#ffd700">💰 Ouro: <span id="lobbyGold">0</span></span>
-    <span style="color:#00ffff">💎 Dimas: <span id="lobbyDiamonds">0</span></span>
+  <div class="v11Menu">
+    <section class="v11Hero">
+      <div class="v11Kicker">MULTIPLAYER • RPG • AÇÃO</div>
+      <h1 class="v11Title">REINOS <span>DE AÇO</span></h1>
+      <p class="v11Sub">Entre no reino, escolha seu modo e comece a batalha. Uma interface feita para jogar deitado, com os comandos livres e o mapa ocupando a tela.</p>
+      <div class="v11Mode" id="v11ModeSelect">
+        <button class="active" data-mode="campaign" onclick="v11SelectMode('campaign',this)">📜 Campanha</button>
+        <button data-mode="survival" onclick="v11SelectMode('survival',this)">💀 Sobrevivência</button>
+        <button data-mode="arena" onclick="v11SelectMode('arena',this)">🏟️ Arena</button>
+        <button data-mode="boss" onclick="v11SelectMode('boss',this)">👑 Chefe</button>
+        <button data-mode="infinite" onclick="v11SelectMode('infinite',this)">♾️ Infinito</button>
+        <button data-mode="challenge" onclick="v11SelectMode('challenge',this)">🔥 Desafio</button>
+      </div>
+      <button class="v11Start" onclick="v11StartSelected()">▶ INICIAR JOGO</button>
+      <div style="margin-top:14px;color:#718394;font-size:11px">Modo selecionado: <b id="v11SelectedMode" style="color:#ffd34e">Campanha</b></div>
+    </section>
+    <section class="v11Right">
+      <div class="v11TopStats">
+        <div class="v11Stat">💰 Ouro<b id="lobbyGold">0</b></div>
+        <div class="v11Stat">💎 Diamantes<b id="lobbyDiamonds">0</b></div>
+      </div>
+      <div id="accountLobbyLine" style="color:#9fb0c2;font-size:11px;text-align:center"></div><div id="saveCloudStatus" style="color:#69f5b1;font-size:10px;text-align:center;margin-top:2px">☁️ Progresso sincronizado</div>
+      <div id="v12ClassLine" style="text-align:center;color:#ffd34e;font-size:12px;margin:5px 0"></div>
+      <div class="v11Actions">
+        <button onclick="openMP('friends')">👥 Amigos</button>
+        <button onclick="openMP('team')">🛡️ Meu Time</button>
+        <button onclick="openMP('combat')">⚔️ Combate Online</button>
+        <button onclick="openMP('invites')">📨 Convites</button>
+        <button onclick="openMP('profile')">🔎 Perfil</button>
+        <button onclick="openPanel('inventory')">🎒 Inventário</button>
+        <button onclick="openPanel('quests')">📜 Missões</button>
+        <button onclick="openPanel('shop')">🛒 Loja</button>
+        <button onclick="openPanel('passesPanel')">👑 Passes</button>
+        <button onclick="comprarDiamantes()">💎 Comprar Dimas</button>
+        <button onclick="resgatarCodigo()">🎁 Código</button>
+        <button onclick="openGraphicsPanel()">⚙️ Gráficos</button>
+        <button onclick="resetSave()">🗑️ Resetar Progresso</button>
+        <button onclick="openSocialHub()">🏝️ Cidade Social</button>
+      </div>
+      <div class="v11Footer">🎮 WASD/Setas • Espaço atacar • Shift esquivar • Ctrl correr • E habilidade</div>
+    </section>
   </div>
-  <div id="accountLobbyLine" style="color:#9fb0c2;font-size:12px;text-align:center;margin:-14px 0 10px"> </div>
-  <h1>⚔️ REINOS DE AÇO ⚔️</h1>
-  
-  <div class="row">
-    <button onclick="startGame('campaign')">📜 Campanha</button>
-    <button onclick="startGame('survival')">💀 Sobrevivência</button>
-    <button onclick="startGame('arena')">🏟️ Arena</button>
-    <button onclick="startGame('boss')">👑 Caça ao Chefe</button>
-    <button onclick="startGame('infinite')">♾️ Infinito</button>
-    <button onclick="startGame('challenge')">🎯 Desafio</button>
-  </div>
-  
-  <div class="row" style="margin-top:10px;">
-    <button onclick="openMP('friends')" style="background:linear-gradient(180deg,#164f65,#092532);border-color:#39eaff;color:#dffaff">👥 AMIGOS</button>
-    <button onclick="openMP('team')" style="background:linear-gradient(180deg,#4a3a12,#211905);border-color:#ffd34e;color:#fff2b0">🛡️ MEU TIME</button>
-    <button onclick="openMP('combat')" style="background:linear-gradient(180deg,#611a24,#260b10);border-color:#ff6470">⚔️ COMBATE ONLINE</button>
-    <button onclick="openMP('invites')" style="background:linear-gradient(180deg,#3e236b,#1a0d32);border-color:#c78cff">📨 CONVITES</button><button onclick="openMP('profile')" style="background:linear-gradient(180deg,#164c35,#09251a);border-color:#54e89a">🔎 PERFIL</button>
-  </div>
-  <div class="row" style="margin-top:20px;">
-    <button onclick="openPanel('inventory')" style="background:linear-gradient(180deg,#2f4f4f,#1a1a1a)">🎒 Inventário / Status</button>
-    <button onclick="openPanel('quests')" style="background:linear-gradient(180deg,#b8860b,#8b6508); border-color:#ffd700">📜 Missões</button>
-    <button onclick="openPanel('shop')" style="background:linear-gradient(180deg,#800080,#4b0082); border-color:#cc44ff">🛒 Loja e Equipamentos</button>
-  </div>
-  
-  <div class="row" style="margin-top:10px;">
-    <button class="small" onclick="comprarDiamantes()" style="background:linear-gradient(180deg,#00008b,#4169e1); border-color:#00ffff; color:#00ffff;">💎 Comprar Dimas</button>
-    <button class="small" onclick="resgatarCodigo()" style="background:linear-gradient(180deg,#228b22,#006400); border-color:#44ff44; color:#44ff44;">🎁 Resgatar Código</button>
-    <button class="small" onclick="resetSave()" style="background:linear-gradient(180deg,#555,#333)">🗑️ Apagar Save</button>
-  </div>
-  
-  <div class="row" style="margin-top:10px;">
-    <button class="small" id="lobbyGraphicsBtn" onclick="openGraphicsPanel()">⚙️ Gráficos</button>
-    <button class="small" onclick="openOrientationPanel()">📱 Orientação</button>
-    <button class="small" onclick="openSocialHub()" style="background:linear-gradient(180deg,#164f65,#092532);border-color:#39eaff;color:#dffaff">🏝️ Ilha do Bate-Papo</button>
-  </div>
-  <div class="lobbyFeatureRow">
-    <span class="lobbyFeature">👥 Multiplayer online</span><span class="lobbyFeature">💬 Chat do lobby</span><span class="lobbyFeature">🎮 Canvas otimizado</span>
-  </div>
-  <p style="margin-top:25px;font-size:12px;color:#888;max-width:500px">
-    <b>Controles:</b><br>
-    WASD/Setas: Mover | Espaço: Atacar (segure para carregar)<br>
-    Shift: Esquivar | Ctrl: Correr | E: Habilidade Especial<br>
-    Q/R: Rotacionar câmera | +/-: Zoom
-  </p>
 </div>
 
-<div class="menu hidden" id="deathMenu">
-  <h1 style="color:#ff4444">💀 Você Morreu 💀</h1>
-  <p id="deathStats"></p>
-  <button onclick="location.reload()"> Tentar Novamente</button>
-  <button onclick="backToMenu()">🏠 Menu Principal</button></div>
 
-<div class="menu hidden" id="winMenu">
-  <h1 style="color:#ffd700">🏆 Vitória! </h1>
-  <p id="winStats"></p>
-  <button onclick="location.reload()">🔄 Jogar Novamente</button>
-  <button onclick="backToMenu()"> Menu Principal</button>
+<div class="panel" id="passesPanel">
+  <button class="closeBtn" onclick="closePanel('passesPanel')">✕ Fechar</button>
+  <h2 style="color:#ffd34e;text-shadow:0 0 14px #ffd34e">👑 PASSES DO REINO</h2>
+  <p style="color:#b9c7d6">Compre pelo WhatsApp e depois resgate os diamantes/código recebido no jogo.</p>
+  <div class="shopItem" style="border:1px solid #39eaff">
+    <div><b style="color:#39eaff">⭐ Passe Premium</b><br><small>R$ 4,99 • 199 diamantes</small></div>
+    <button onclick="comprarPasseWhats('premium')" style="background:#145d88;color:#fff;font-weight:900">📱 QUERO COMPRAR</button>
+  </div>
+  <div class="shopItem" style="border:1px solid #ffd34e">
+    <div><b style="color:#ffd34e">👑 Passe Elite</b><br><small>R$ 10,99 • 439 diamantes</small></div>
+    <button onclick="comprarPasseWhats('elite')" style="background:#8a5b00;color:#fff;font-weight:900">📱 QUERO COMPRAR</button>
+  </div>
+  <div class="shopItem" style="border:1px solid #7cff9b">
+    <div><b>💎 Como funciona</b><br><small>1. Faça o pagamento pelo WhatsApp.<br>2. Receba o código DIMA do promotor.<br>3. Resgate em 🎁 Código.<br>4. Use os diamantes para liberar o passe.</small></div>
+  </div>
 </div>
 
 <!-- INVENTÁRIO -->
@@ -496,10 +518,11 @@ const canvas=document.getElementById('gameCanvas'),ctx=canvas.getContext('2d');
 const minimap=document.getElementById('minimap'),mmx=minimap.getContext('2d');
 let W=0,H=0,DPR=1;
 let graphicsQuality=localStorage.getItem('reinosAcoGraphics')||'ultra';
-if(!['ultra','low','medium','high'].includes(graphicsQuality))graphicsQuality='ultra';
+if(!['ultraMax','ultra','low','medium','high'].includes(graphicsQuality))graphicsQuality='ultra';
 const GRAPHICS={
   // IMPORTANTE: obstáculos com colisão SEMPRE são desenhados.
-  // Assim nunca existe uma parede/árvore/rocha invisível no modo leve.
+  // Ultra Leve Max reduz efeitos, partículas e resolução, mas mantém obstáculos visíveis.
+  ultraMax:{dpr:0.55,particle:0.018,magic:0.035,obstaclesStep:1,glow:false,water:false,details:false,minimap:true,damage:false,projectilesSimple:true},
   ultra:{dpr:0.75,particle:0.06,magic:0.10,obstaclesStep:1,glow:false,water:false,details:false,minimap:true,damage:false,projectilesSimple:true},
   low:{dpr:1,particle:0.20,magic:0.30,obstaclesStep:1,glow:false,water:false,details:false,minimap:true,damage:true,projectilesSimple:true},
   medium:{dpr:1.5,particle:0.7,magic:0.75,obstaclesStep:1,glow:true,water:true,details:true,minimap:true,damage:true,projectilesSimple:false},
@@ -512,9 +535,9 @@ function applyGraphicsQuality(){
   canvas.height=Math.max(1,Math.floor(H*DPR));
   canvas.style.imageRendering=graphicsQuality==='low'?'auto':'auto';
   ctx.setTransform(DPR,0,0,DPR,0,0);
-  canvas.style.filter=graphicsQuality==='low'?'saturate(.98) contrast(1.01)':graphicsQuality==='medium'?'saturate(1.05) contrast(1.03)':'saturate(1.1) contrast(1.05)';
+  canvas.style.filter=(graphicsQuality==='ultraMax'||graphicsQuality==='ultra')?'none':graphicsQuality==='low'?'saturate(.98) contrast(1.01)':graphicsQuality==='medium'?'saturate(1.05) contrast(1.03)':'saturate(1.1) contrast(1.05)';
   document.querySelectorAll('.graphicsOption').forEach(b=>b.classList.toggle('active',b.dataset.quality===graphicsQuality));
-  const st=document.getElementById('graphicsStatus'); if(st)st.textContent='Qualidade atual: '+({ultra:'ULTRA LEVE',low:'LEVE',medium:'MÉDIA',high:'ALTA'}[graphicsQuality]);
+  const st=document.getElementById('graphicsStatus'); if(st)st.textContent='Qualidade atual: '+({ultraMax:'ULTRA LEVE MAX',ultra:'ULTRA LEVE',low:'LEVE',medium:'MÉDIA',high:'ALTA'}[graphicsQuality]);
 }
 function resize(){W=window.innerWidth;H=window.innerHeight;applyGraphicsQuality();}
 window.addEventListener('resize',resize);
@@ -526,14 +549,19 @@ function setGraphicsQuality(level){
   try{localStorage.setItem('reinosAcoGraphics',level);}catch(e){}
   applyGraphicsQuality();
   initAudio();
-  playSound(level==='high'?'sine':level==='medium'?'triangle':'square',level==='high'?880:level==='medium'?660:level==='low'?440:330,.08,.08);
-  showToast('🎨 Gráficos: '+({ultra:'Ultra Leve',low:'Leve',medium:'Médio',high:'Alto'}[level]));
+  playSound(level==='high'?'sine':level==='medium'?'triangle':'square',level==='high'?880:level==='medium'?660:level==='low'?440:level==='ultra'?330:250,.08,.08);
+  showToast('🎨 Gráficos: '+({ultraMax:'Ultra Leve Max',ultra:'Ultra Leve',low:'Leve',medium:'Médio',high:'Alto'}[level]));
 }
 function openGraphicsPanel(){initAudio();document.getElementById('graphicsPanel').style.display='flex';applyGraphicsQuality();}
 function closeGraphicsPanel(){document.getElementById('graphicsPanel').style.display='none';}
 
 // ==================== ORIENTAÇÃO DA TELA ====================
-let orientationMode=localStorage.getItem('reinosAcoOrientation')||'auto';
+
+let v11Selected='campaign';
+const v11Names={campaign:'Campanha',survival:'Sobrevivência',arena:'Arena',boss:'Caça ao Chefe',infinite:'Infinito',challenge:'Desafio'};
+function v11SelectMode(mode,btn){v11Selected=mode;document.querySelectorAll('#v11ModeSelect button').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');const el=document.getElementById('v11SelectedMode');if(el)el.textContent=v11Names[mode]||mode;}
+function v11StartSelected(){initAudio();startGame(v11Selected);}
+let orientationMode='landscape';
 if(!['auto','portrait','landscape'].includes(orientationMode))orientationMode='auto';
 function orientationLabel(){return {auto:'AUTOMÁTICA',portrait:'VERTICAL',landscape:'HORIZONTAL'}[orientationMode]||'AUTOMÁTICA'}
 function applyOrientationMode(){
@@ -675,6 +703,15 @@ const WEAPONS={
   arco_longo:{name:'Arco Longo',icon:'🏹',damage:12,speed:1.0,range:350,type:'ranged',color:'#8b4513',projectileSpeed:550,swingColor:'#daa520',rarity:'raro'},
   cajado_arcano:{name:'Cajado Arcano',icon:'🪄',damage:22,speed:0.9,range:320,type:'ranged',color:'#9932cc',projectileSpeed:480,swingColor:'#e0b0ff',effect:'freeze',rarity:'épico'},
   adaga_sombra:{name:'Adaga das Sombras',icon:'🗡️',damage:16,speed:1.8,range:45,type:'melee',color:'#4b0082',swingColor:'#9370db',effect:'poison',rarity:'épico'},
+
+  espada_guardiao:{name:'Espada do Guardião',icon:'⚔️',damage:24,speed:1.0,range:72,type:'melee',color:'#b9c7d6',swingColor:'#fff',rarity:'raro',classOnly:'guerreiro',priceD:45},
+  machado_colosso:{name:'Machado do Colosso',icon:'🪓',damage:38,speed:0.72,range:78,type:'melee',color:'#7c8792',swingColor:'#ffd34e',effect:'stun',rarity:'épico',classOnly:'guerreiro',priceD:90},
+  arco_falcao:{name:'Arco do Falcão',icon:'🏹',damage:25,speed:1.2,range:410,type:'ranged',color:'#8b5a2b',projectileSpeed:650,swingColor:'#ffd34e',rarity:'épico',classOnly:'arqueiro',priceD:60},
+  arco_lua:{name:'Arco da Lua',icon:'🌙',damage:39,speed:1.0,range:460,type:'ranged',color:'#9ee8ff',projectileSpeed:720,swingColor:'#fff',effect:'freeze',rarity:'mítico',classOnly:'arqueiro',priceD:120},
+  cajado_fenix:{name:'Cajado da Fênix',icon:'🔥',damage:36,speed:0.95,range:360,type:'ranged',color:'#ff5a24',projectileSpeed:540,swingColor:'#ffd34e',effect:'burn',rarity:'épico',classOnly:'mago',priceD:75},
+  grimorio_gelo:{name:'Grimório do Gelo',icon:'📘',damage:48,speed:0.8,range:390,type:'ranged',color:'#6fe8ff',projectileSpeed:500,swingColor:'#fff',effect:'freeze',rarity:'mítico',classOnly:'mago',priceD:130},
+  rapieira_sombra:{name:'Rapieira Sombria',icon:'🗡️',damage:29,speed:2.1,range:62,type:'melee',color:'#6d43a8',swingColor:'#d7b6ff',effect:'poison',rarity:'épico',classOnly:'duelista',priceD:65},
+  laminas_fantasma:{name:'Lâminas Fantasma',icon:'👻',damage:44,speed:2.4,range:58,type:'melee',color:'#cfcfff',swingColor:'#fff',effect:'poison',rarity:'mítico',classOnly:'duelista',priceD:140},
   // Premium
   espada_fogo_3d:{name:'Montante Infernal 3D',icon:'🔥',damage:55,speed:1.3,range:80,type:'melee',color:'#ff4500',swingColor:'#ff8c00',effect:'burn',priceD:200,rarity:'lendário'},
   foice_gelo_5d:{name:'Foice Congelante 5D',icon:'❄️',damage:45,speed:1.1,range:95,type:'melee',color:'#00ced1',swingColor:'#87cefa',effect:'freeze',priceD:250,rarity:'mítico'},
@@ -748,16 +785,47 @@ let saveData=loadSave();
 function loadSave(){
   try{ const saved=JSON.parse(localStorage.getItem('reinosDeAcoSaveV3')); if(saved)return saved; }catch(e){}
   return{
-    playerClass:null, gold:0, diamantes:0, codigosUsados:[], activeQuest:null, questProgress:0, questTarget:0, questReward:0, questName:'', boosts:{xpTime:0},
+    playerClass:null, gold:0, diamantes:0, codigosUsados:[], activeQuest:null, questProgress:0, premiumPass:false, elitePass:false, questTarget:0, questReward:0, questName:'', boosts:{xpTime:0},
     xp:0, level:1, attributePoints:0, attributes:{strength:0,defense:0,vitality:0,agility:0},
     weapons:[], equippedWeapon:null, hats:[], equippedHat:null, capes:[], equippedCape:null, skills:[], equippedSkill:null,
     unlockedMaps:['floresta'], achievements:[], totalKills:0, totalDeaths:0, bossesDefeated:[]
   };
 }
-function saveGame(){ try{ localStorage.setItem('reinosDeAcoSaveV3',JSON.stringify(saveData)); updateLobby(); }catch(e){} }
+let accountHydrated=false;
+let saveSyncTimer=null;
+let saveSyncBusy=false;
+let saveSyncAgain=false;
+function saveGame(){
+  try{ localStorage.setItem('reinosDeAcoSaveV3',JSON.stringify(saveData)); updateLobby(); }catch(e){}
+  if(authToken && activeCharacter && accountHydrated) queueServerSave();
+}
+function queueServerSave(){
+  clearTimeout(saveSyncTimer);
+  saveSyncTimer=setTimeout(()=>syncProgressToServer(),900);
+}
+async function syncProgressToServer(){
+  if(!authToken||!activeCharacter||!accountHydrated)return;
+  if(saveSyncBusy){saveSyncAgain=true;return;}
+  saveSyncBusy=true;
+  const ss=document.getElementById('saveCloudStatus');if(ss)ss.textContent='☁️ Salvando progresso...';
+  try{
+    const d=await api('/api/characters/'+encodeURIComponent(activeCharacter.id)+'/progress',{method:'PUT',body:JSON.stringify({progress:saveData})});
+    if(d.character){ activeCharacter=d.character; const ss=document.getElementById('saveCloudStatus');if(ss)ss.textContent='☁️ Progresso sincronizado'; }
+  }catch(e){ const ss=document.getElementById('saveCloudStatus');if(ss)ss.textContent='⚠️ Salvamento pendente — tentando novamente'; console.warn('Falha ao salvar progresso no servidor:',e.message); }
+  finally{
+    saveSyncBusy=false;
+    if(saveSyncAgain){saveSyncAgain=false;queueServerSave();}
+  }
+}
+function forceServerSave(){ if(authToken&&activeCharacter&&accountHydrated) syncProgressToServer(); }
+window.addEventListener('pagehide',()=>{try{
+  if(authToken&&activeCharacter&&accountHydrated){
+    fetch(SERVER_URL+'/api/characters/'+encodeURIComponent(activeCharacter.id)+'/progress',{method:'PUT',keepalive:true,headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken},body:JSON.stringify({progress:saveData})});
+  }
+}catch(e){}});
 function updateLobby(){
   const g = document.getElementById('lobbyGold'); const d = document.getElementById('lobbyDiamonds');
-  if(g) g.textContent = saveData.gold; if(d) d.textContent = saveData.diamantes || 0;
+  if(g) g.textContent = saveData.gold; if(d) d.textContent = saveData.diamantes || 0; const cl=document.getElementById('v12ClassLine'); if(cl) cl.textContent='Classe: '+(CLASSES[saveData.playerClass]?.name||'—')+' • '+(saveData.elitePass?'👑 Elite':'')+(saveData.premiumPass?' ⭐ Premium':'');
 }
 updateLobby();
 function resetSave(){ if(confirm('⚠️ Tem certeza que deseja apagar TODO o progresso?')){ localStorage.removeItem('reinosDeAcoSaveV3'); location.reload(); } }
@@ -938,7 +1006,7 @@ function selectClass(c){
 // ==================== LOJA, CODIGOS E MISSÕES ====================
 function comprarDiamantes(){
   initAudio();
-  let numeroZap = "5544997270282"; 
+  let numeroZap = "5544997270282";
   let texto = "Olá! Quero comprar diamantes no Reinos de Aço. Falei com o promotor. Segue o comprovante do Pix no valor de R$ ";
   window.open(`https://wa.me/${numeroZap}?text=${encodeURIComponent(texto)}`, '_blank');
 }
@@ -955,6 +1023,47 @@ function resgatarCodigo(){
       }
   } showToast("❌ Código Inválido!");
 }
+
+function comprarPasseWhats(tipo){
+  initAudio();
+  const numeroZap="5544997270282";
+  const info=tipo==='elite'
+    ? {nome:'Passe Elite',preco:'R$ 10,99',dimas:439}
+    : {nome:'Passe Premium',preco:'R$ 4,99',dimas:199};
+  const nomeConta=(saveData.nick||saveData.username||saveData.accountId||'meu jogador');
+  const texto=`Olá! Quero comprar o ${info.nome} do Reinos de Aço por ${info.preco}. Meu jogador é ${nomeConta}. Quero receber o código de ${info.dimas} diamantes para liberar o passe.`;
+  window.open(`https://wa.me/${numeroZap}?text=${encodeURIComponent(texto)}`,'_blank');
+}
+function comprarPasseComDiamantes(tipo){
+  const elite=tipo==='elite';
+  const preco=elite?439:199;
+  const campo=elite?'elitePass':'premiumPass';
+  const nome=elite?'Passe Elite':'Passe Premium';
+  if(saveData[campo]){showToast('✅ Você já possui o '+nome+'!');return;}
+  if((saveData.diamantes||0)<preco){alert(`💎 Você precisa de ${preco} diamantes para liberar o ${nome}.`);return;}
+  saveData.diamantes-=preco;
+  saveData[campo]=true;
+  saveGame(); updateHUD();
+  showToast(`👑 ${nome} liberado!`);
+  renderPasses();
+}
+function renderPasses(){
+  const p=document.getElementById('passesPanel'); if(!p)return;
+  const cards=p.querySelectorAll('.shopItem');
+  if(cards[0]){
+    const b=cards[0].querySelector('button');
+    if(b)b.outerHTML=saveData.premiumPass
+      ? '<button disabled style="background:#276b3d;color:#fff;font-weight:900">✅ LIBERADO</button>'
+      : '<button onclick="comprarPasseComDiamantes(\'premium\')" style="background:#145d88;color:#fff;font-weight:900">💎 199 • LIBERAR</button>';
+  }
+  if(cards[1]){
+    const b=cards[1].querySelector('button');
+    if(b)b.outerHTML=saveData.elitePass
+      ? '<button disabled style="background:#765d18;color:#fff;font-weight:900">✅ LIBERADO</button>'
+      : '<button onclick="comprarPasseComDiamantes(\'elite\')" style="background:#8a5b00;color:#fff;font-weight:900">💎 439 • LIBERAR</button>';
+  }
+}
+
 function buyBoost(type, price){
   if((saveData.diamantes||0) >= price){ saveData.diamantes -= price; if(type==='xp') saveData.boosts.xpTime = Date.now() + 3600*1000; saveGame(); showToast("⚡ Boost ativado por 1 hora!"); } else alert("❌ Diamantes insuficientes!");
 }
@@ -975,10 +1084,19 @@ function renderQuests(){
   let c = document.getElementById('questContainer');
   if(!saveData.activeQuest){
     let pool = [
-      {name:'Exterminar Bárbaros', target:'barbaro', count: 40 + saveData.level*5, reward: 250 + saveData.level*10},
-      {name:'Caçar Orcs Guerreiros', target:'orc', count: 25 + saveData.level*4, reward: 350 + saveData.level*15},
-      {name:'Derrotar Golems', target:'golem', count: 10 + saveData.level*2, reward: 500 + saveData.level*20}
+      {name:'⚔️ Guerreiro — Segure a Ponte', target:'orc', count: 30 + saveData.level*4, reward: 450 + saveData.level*15},
+      {name:'🏹 Arqueiro — Olhos de Águia', target:'arqueiro', count: 25 + saveData.level*4, reward: 500 + saveData.level*18},
+      {name:'🪄 Mago — O Ritual Congelado', target:'mago_gelo', count: 12 + saveData.level*2, reward: 550 + saveData.level*20},
+      {name:'🗡️ Duelista — Dança das Lâminas', target:'ninja', count: 22 + saveData.level*3, reward: 600 + saveData.level*22}
     ];
+    const classe=saveData.playerClass||'guerreiro';
+    const porClasse={
+      guerreiro:[pool[0]],
+      arqueiro:[pool[1]],
+      mago:[pool[2]],
+      duelista:[pool[3]]
+    };
+    pool=porClasse[classe]||pool;
     let q = pool[Math.floor(Math.random()*pool.length)];
     saveData.activeQuest = q.target; saveData.questName = q.name;
     saveData.questProgress = 0; saveData.questTarget = q.count; saveData.questReward = q.reward; saveGame();
@@ -1514,7 +1632,9 @@ function drawCharacter(entity,scale){
 
 function drawMinimap(){
   const size=160;const worldW=game.world.width;const worldH=game.world.height;
-  mmx.fillStyle=game.world.theme.bg||'#1a3a1a';mmx.fillRect(0,0,size,size);
+  mmx.clearRect(0,0,size,size);
+  mmx.fillStyle=game.world.theme.ground||game.world.theme.bg||'#1a3a1a';mmx.fillRect(0,0,size,size);
+  mmx.strokeStyle='rgba(255,255,255,.35)';mmx.lineWidth=2;mmx.strokeRect(1,1,size-2,size-2);
   for(const obs of game.world.obstacles){mmx.fillStyle=obs.type==='tree'?'#1a4a1a':'#6a6a6a';mmx.fillRect(obs.x/worldW*size-1.5,obs.y/worldH*size-1.5,3,3);}
   mmx.fillStyle='#ff4444';for(const enemy of game.enemies){if(!enemy.alive)continue;mmx.fillRect(enemy.x/worldW*size-1.5,enemy.y/worldH*size-1.5,enemy.isBoss?5:3,enemy.isBoss?5:3);}
   if(game.player){mmx.fillStyle='#44ff44';mmx.fillRect(game.player.x/worldW*size-2.5,game.player.y/worldH*size-2.5,5,5);}
@@ -1616,7 +1736,7 @@ function startGame(mode){
 }
 
 function backToMenu(){ closeSocialHub(); document.getElementById('deathMenu').classList.add('hidden'); document.getElementById('winMenu').classList.add('hidden'); document.getElementById('mainMenu').classList.remove('hidden'); closeLobbyChat(); saveGame(); updateLobby(); }
-function openPanel(id){ closeLobbyChat(); initAudio(); document.getElementById('mainMenu').classList.add('hidden'); document.getElementById(id).style.display='block'; if(id==='inventory') renderInventory(); if(id==='quests') renderQuests(); if(id==='shop') renderShop(); }
+function openPanel(id){ if(id==='passesPanel')setTimeout(renderPasses,0); closeLobbyChat(); initAudio(); document.getElementById('mainMenu').classList.add('hidden'); document.getElementById(id).style.display='block'; if(id==='inventory') renderInventory(); if(id==='quests') renderQuests(); if(id==='shop') renderShop(); }
 function closePanel(id){ document.getElementById(id).style.display='none'; document.getElementById('mainMenu').classList.remove('hidden'); updateLobby(); }
 function toggleInventory(){ if(document.getElementById('inventory').style.display==='block') closePanel('inventory'); else openPanel('inventory'); }
 
@@ -1679,6 +1799,7 @@ function renderShop() {
     function drawS(cid, db, t) {
         let h=''; Object.keys(db).forEach(k => {
             if(saveData[t+'s'] && saveData[t+'s'].includes(k)) return;
+            if(db[k].classOnly && db[k].classOnly!==saveData.playerClass) return;
             if(t==='weapon' && !db[k].priceD) return;
             let i=db[k]; let gBtn = i.priceG>0 ? `<button style="background:#b8860b; color:#fff; border:none; padding:8px; border-radius:5px; font-weight:bold; cursor:pointer;" onclick="buyItem('${t}','${k}',${i.priceG},${i.priceD},false)">💰 ${i.priceG}</button>` : '';
             h+=`<div class="shopItem"><div><span style="font-size:24px">${i.icon}</span> <b style="color:${i.color||'#fff'}">${i.name}</b></div><div style="display:flex;gap:5px;">${gBtn}<button style="background:#800080;border:1px solid #00ffff;color:#00ffff; padding:8px; border-radius:5px; font-weight:bold; cursor:pointer;" onclick="buyItem('${t}','${k}',${i.priceG},${i.priceD},true)">💎 ${i.priceD}</button></div></div>`;
@@ -1956,6 +2077,28 @@ function drawEyes(entity,s){
 }
 function drawPlayerGear(entity,s){
   if(entity!==game.player)return;
+  // Roupa/armadura exclusiva por classe, mantendo o personagem circular.
+  const classe=saveData.playerClass||'guerreiro';
+  const roupa={
+    guerreiro:{base:'#6f7782',accent:'#c9d2dc',metal:true},
+    arqueiro:{base:'#425b42',accent:'#a6c98a',metal:false},
+    mago:{base:'#30205a',accent:'#8e70ff',metal:false},
+    duelista:{base:'#242633',accent:'#d74dff',metal:false}
+  }[classe]||{base:'#555',accent:'#aaa',metal:false};
+  ctx.save();
+  ctx.translate(entity.x,entity.y);
+  ctx.fillStyle=roupa.base;ctx.globalAlpha=.9;
+  ctx.beginPath();ctx.arc(0,0,s*.92,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle=roupa.accent;ctx.lineWidth=Math.max(2,s*.10);
+  ctx.beginPath();ctx.arc(0,0,s*.84,-.35,.35);ctx.stroke();
+  if(roupa.metal){
+    ctx.fillStyle='rgba(220,230,240,.25)';
+    ctx.fillRect(-s*.58,-s*.12,s*1.16,s*.22);
+  }else{
+    ctx.fillStyle=roupa.accent;ctx.globalAlpha=.55;
+    ctx.beginPath();ctx.arc(0,s*.18,s*.22,0,Math.PI*2);ctx.fill();
+  }
+  ctx.restore();
   const hat=saveData.equippedHat||'';
   if(hat){
     const col=hat.includes('rei')?'#ffd34e':hat.includes('ferro')?'#aeb8c3':'#18202b';
@@ -1966,13 +2109,36 @@ function drawPlayerGear(entity,s){
   const cape=saveData.equippedCape||'';
   if(cape){const c=cape.includes('sombra')?'#25183e':cape.includes('heroi')?'#a31324':'#7b4c2c';ctx.save();ctx.translate(entity.x,entity.y+s*.35);ctx.fillStyle=c;ctx.globalAlpha=.92;ctx.beginPath();ctx.moveTo(-s*.7,-s*.15);ctx.quadraticCurveTo(-s*1.2,s*.75,0,s*1.15);ctx.quadraticCurveTo(s*1.2,s*.75,s*.7,-s*.15);ctx.closePath();ctx.fill();ctx.restore();}
 }
+
+// Animação leve de armas: acompanha corrida/ataque sem transformar o personagem em humanoide.
+function weaponMotion(entity){
+  const run=Math.sin(game.time*12)*0.08;
+  const atk=entity===game.player && entity.isCharging ? Math.min(1,entity.attackCharge||0) : 0;
+  const c=saveData.playerClass||'guerreiro';
+  if(c==='arqueiro'){
+    return {angle:entity.facing + (atk>.02 ? -Math.PI/2 : .05*Math.sin(game.time*8)), offset: atk>.02 ? .96 : .82, tension:atk};
+  }
+  if(c==='duelista'){
+    return {angle:entity.facing + .35 + run + (atk>.02 ? -atk*.95 : 0), offset:.92+atk*.18, tension:atk};
+  }
+  if(c==='mago'){
+    return {angle:entity.facing + .12 + run, offset:.9, tension:atk};
+  }
+  return {angle:entity.facing + .18 + run - atk*.9, offset:.9+atk*.22, tension:atk};
+}
+
 function drawWeaponPro(entity,s){
   if(entity!==game.player||!entity.weapon)return;
   const w=entity.weapon; const r=weaponRarityColor(w.rarity||'comum');
-  ctx.save();ctx.translate(entity.x+Math.cos(entity.facing)*s*.86,entity.y+Math.sin(entity.facing)*s*.86);ctx.rotate(entity.facing);
+  const wm=weaponMotion(entity);
+  ctx.save();ctx.translate(entity.x+Math.cos(wm.angle)*s*wm.offset,entity.y+Math.sin(wm.angle)*s*wm.offset);ctx.rotate(wm.angle);
   ctx.globalCompositeOperation='lighter';ctx.shadowBlur=w.rarity==='mítico'?30:w.rarity==='lendário'?25:16;ctx.shadowColor=r;
   if(w.type==='ranged'&&w.name.includes('Arco')){
-    ctx.strokeStyle=w.color;ctx.lineWidth=s*.14;ctx.beginPath();ctx.arc(0,0,s*.78,-Math.PI*.72,Math.PI*.72);ctx.stroke();ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(Math.cos(-Math.PI*.72)*s*.78,Math.sin(-Math.PI*.72)*s*.78);ctx.lineTo(Math.cos(Math.PI*.72)*s*.78,Math.sin(Math.PI*.72)*s*.78);ctx.stroke();ctx.strokeStyle=r;ctx.lineWidth=s*.07;ctx.beginPath();ctx.moveTo(-s*.35,0);ctx.lineTo(s*.8,0);ctx.stroke();
+    ctx.strokeStyle=w.color;ctx.lineWidth=s*.14;ctx.beginPath();ctx.arc(0,0,s*.78,-Math.PI*.72,Math.PI*.72);ctx.stroke();
+    ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.beginPath();
+    const pull=wm.tension*s*.45;ctx.moveTo(Math.cos(-Math.PI*.72)*s*.78,Math.sin(-Math.PI*.72)*s*.78);
+    ctx.lineTo(-pull,0);ctx.lineTo(Math.cos(Math.PI*.72)*s*.78,Math.sin(Math.PI*.72)*s*.78);ctx.stroke();
+    ctx.beginPath();ctxh();ctx.moveTo(Math.cos(-Math.PI*.72)*s*.78,Math.sin(-Math.PI*.72)*s*.78);ctx.lineTo(Math.cos(Math.PI*.72)*s*.78,Math.sin(Math.PI*.72)*s*.78);ctx.stroke();ctx.strokeStyle=r;ctx.lineWidth=s*.07;ctx.beginPath();ctx.moveTo(-s*.35,0);ctx.lineTo(s*.8,0);ctx.stroke();
   }else if(w.type==='ranged'){
     ctx.strokeStyle=w.color;ctx.lineWidth=s*.13;ctx.beginPath();ctx.moveTo(-s*.5,s*.5);ctx.lineTo(s*.65,-s*.65);ctx.stroke();ctx.fillStyle=r;ctx.beginPath();ctx.arc(s*.68,-s*.68,s*.25,0,Math.PI*2);ctx.fill();
   }else if(w.name.includes('Machado')){
@@ -2167,13 +2333,38 @@ async function doLogin(){try{authMsg('Entrando...');const d=await api('/api/auth
 async function doRegister(){const p=document.getElementById('regPass').value,p2=document.getElementById('regPass2').value;if(p!==p2)return authMsg('As senhas não conferem.',true);try{authMsg('Criando conta...');const d=await api('/api/auth/register',{method:'POST',body:JSON.stringify({nick:document.getElementById('regNick').value,phone:document.getElementById('regPhone').value,password:p})});persistAuth(d.token,d.account);document.getElementById('authGate').style.display='none';await loadAccount();connectMultiplayerAfterAuth();openCharacterGate();if(d.whatsappUrl){setTimeout(()=>{window.location.href=d.whatsappUrl},350);}}catch(e){authMsg(e.message,true)}}
 async function requestResetCode(){try{authMsg('Preparando seu WhatsApp...');const d=await api('/api/auth/request-reset',{method:'POST',body:JSON.stringify({phone:document.getElementById('resetPhone').value})});if(d.whatsappUrl){authMsg('Abrindo WhatsApp...');window.location.href=d.whatsappUrl;}else authMsg(d.message||'Não foi possível abrir o WhatsApp.');}catch(e){authMsg(e.message,true)}}
 async function finishReset(){try{authMsg('Alterando senha...');const d=await api('/api/auth/reset-password',{method:'POST',body:JSON.stringify({phone:document.getElementById('resetPhone').value,code:document.getElementById('resetCode').value,newPassword:document.getElementById('resetPass').value})});persistAuth(d.token,d.account);authMsg('Senha alterada. Entrando...');document.getElementById('authGate').style.display='none';connectMultiplayerAfterAuth();await loadAccount();}catch(e){authMsg(e.message,true)}}
-async function loadAccount(){const d=await api('/api/me');accountData=d.account;networkUserId=d.account.id;networkName=d.account.nick;window.reinosCharacters=d.characters||[];activeCharacter=(d.characters||[]).find(c=>String(c.id)===String(d.account.activeCharacterId))||d.characters?.[0]||null;if(activeCharacter){networkName=activeCharacter.name;saveData.playerClass=activeCharacter.class_key;saveData.characterColor=activeCharacter.color;try{localStorage.setItem('reinosAcoNick',networkName)}catch(e){}saveGame();}renderCharacters(d.characters||[]);renderMyAccount();if(!(d.characters||[]).length)openCharacterGate();else initApp();}
+async function loadAccount(){
+  const localBefore=JSON.parse(JSON.stringify(saveData));
+  const d=await api('/api/me');
+  accountData=d.account;networkUserId=d.account.id;networkName=d.account.nick;
+  window.reinosCharacters=d.characters||[];
+  activeCharacter=(d.characters||[]).find(c=>String(c.id)===String(d.account.activeCharacterId))||d.characters?.[0]||null;
+  if(activeCharacter){
+    const serverProgress=activeCharacter.progress||{};
+    const localHasRealProgress=Number(localBefore.level||1)>1 || Number(localBefore.gold||0)>0 || Number(localBefore.diamantes||0)>0 || Number(localBefore.xp||0)>0 || (localBefore.weapons||[]).length>0 || (localBefore.achievements||[]).length>0;
+    const serverHasRealProgress=Number(serverProgress.level||1)>1 || Number(serverProgress.gold||0)>0 || Number(serverProgress.diamantes||0)>0 || Number(serverProgress.xp||0)>0 || (serverProgress.weapons||[]).length>0 || (serverProgress.achievements||[]).length>0;
+    // Primeira entrada: se o banco ainda estiver vazio e o aparelho tiver progresso antigo, migra uma única vez.
+    if(localHasRealProgress && !serverHasRealProgress){ saveData=localBefore; saveData.playerClass=activeCharacter.class_key; saveData.characterColor=activeCharacter.color; accountHydrated=true; await syncProgressToServer(); }
+    else { saveData=mergeClientSave(serverProgress); saveData.playerClass=activeCharacter.class_key; saveData.characterColor=activeCharacter.color; accountHydrated=true; }
+    try{localStorage.setItem('reinosAcoNick',networkName)}catch(e){}
+    saveGame();
+  }else accountHydrated=false;
+  renderCharacters(d.characters||[]);renderMyAccount();
+  if(!(d.characters||[]).length)openCharacterGate();else initApp();
+}
+function mergeClientSave(serverProgress){
+  const base=typeof loadSave==='function'?loadSave():{};
+  const out=Object.assign({},base,serverProgress||{});
+  out.attributes=Object.assign({},base.attributes||{},serverProgress?.attributes||{});
+  out.boosts=Object.assign({},base.boosts||{},serverProgress?.boosts||{});
+  return out;
+}
 function connectMultiplayerAfterAuth(){if(socket){try{socket.disconnect()}catch(e){}}initMultiplayer();}
 function openCharacterGate(){document.getElementById('characterGate').style.display='flex';renderCharacters(window.reinosCharacters||[]);}
 function closeCharacterGate(){if(!(window.reinosCharacters||[]).length)return;document.getElementById('characterGate').style.display='none';if(!activeCharacter){activeCharacter=window.reinosCharacters[0];}networkName=activeCharacter.name;saveData.playerClass=activeCharacter.class_key;saveData.characterColor=activeCharacter.color;saveGame();initApp();if(networkReady)networkJoin('lobby');}
 function renderCharacters(chars){window.reinosCharacters=chars||[];const el=document.getElementById('charList');if(!el)return;document.getElementById('accountIdentity').textContent=accountData?`👤 ${accountData.nick} • 🆔 ${accountData.id}`:'';el.innerHTML=window.reinosCharacters.map(c=>`<div class="charItem"><div><span class="charDot" style="color:${escapeHTML(c.color)};background:${escapeHTML(c.color)}"></span> <b>${escapeHTML(c.name)}</b></div><div style="font-size:11px;color:#9fb0c2;margin:5px 0">${escapeHTML(c.class_key)} • ${escapeHTML(c.color)}</div><button style="min-width:0!important;width:100%;padding:8px!important" onclick="selectCharacterUI('${escapeHTML(c.id)}')">${activeCharacter&&String(activeCharacter.id)===String(c.id)?'✅ ATIVO':'▶️ USAR'}</button></div>`).join('')||'<div class="mpEmpty">Crie seu primeiro personagem abaixo.</div>';}
-async function createCharacterUI(){const name=document.getElementById('charNameInput').value.trim(),classe=document.getElementById('charClassInput').value,color=document.getElementById('charColorInput').value;if(!name)return showToast('Digite o nome do personagem.');try{const d=await api('/api/characters',{method:'POST',body:JSON.stringify({name,classe,color})});activeCharacter=d.character;window.reinosCharacters=[...(window.reinosCharacters||[]),d.character];saveData.playerClass=d.character.class_key;saveData.characterColor=d.character.color;networkName=d.character.name;saveGame();renderCharacters(window.reinosCharacters);document.getElementById('charNameInput').value='';showToast('🧙 Personagem criado!');}catch(e){showToast('❌ '+e.message)}}
-async function selectCharacterUI(id){try{const d=await api('/api/characters/select',{method:'POST',body:JSON.stringify({id})});activeCharacter=d.character;networkName=d.character.name;saveData.playerClass=d.character.class_key;saveData.characterColor=d.character.color;saveGame();renderCharacters(window.reinosCharacters);closeCharacterGate();if(networkReady)networkJoin('lobby');showToast('✅ Personagem ativo: '+networkName);}catch(e){showToast('❌ '+e.message)}}
+async function createCharacterUI(){const name=document.getElementById('charNameInput').value.trim(),classe=document.getElementById('charClassInput').value,color=document.getElementById('charColorInput').value;if(!name)return showToast('Digite o nome do personagem.');try{const d=await api('/api/characters',{method:'POST',body:JSON.stringify({name,classe,color})});activeCharacter=d.character;window.reinosCharacters=[...(window.reinosCharacters||[]),d.character];accountHydrated=true;saveData=mergeClientSave(d.character.progress||{});saveData.playerClass=d.character.class_key;saveData.characterColor=d.character.color;networkName=d.character.name;saveGame();renderCharacters(window.reinosCharacters);document.getElementById('charNameInput').value='';showToast('🧙 Personagem criado!');}catch(e){showToast('❌ '+e.message)}}
+async function selectCharacterUI(id){try{const d=await api('/api/characters/select',{method:'POST',body:JSON.stringify({id})});activeCharacter=d.character;accountHydrated=true;networkName=d.character.name;saveData=mergeClientSave(d.character.progress||{});saveData.playerClass=d.character.class_key;saveData.characterColor=d.character.color;saveGame();renderCharacters(window.reinosCharacters);closeCharacterGate();if(networkReady)networkJoin('lobby');showToast('✅ Personagem ativo: '+networkName);}catch(e){showToast('❌ '+e.message)}}
 function renderMyAccount(){const line=document.getElementById('accountLobbyLine');if(line&&accountData)line.textContent='👤 '+accountData.nick+' • 🆔 '+accountData.id+' • 🧙 '+(activeCharacter?.name||'Sem personagem');const el=document.getElementById('myAccountProfile');if(!el)return;el.innerHTML=accountData?`<div class="profileBox"><b>👤 ${escapeHTML(accountData.nick)}</b><div class="mpSub">🆔 ${escapeHTML(accountData.id)}</div><div class="mpSub">📱 WhatsApp: ${escapeHTML(accountData.phone||'')}</div><div class="mpSub">🧙 ${window.reinosCharacters?.length||0} personagem(ns)</div></div>`:'Faça login.';}
 function lookupProfileUI(){const q=(document.getElementById('profileSearchInput').value||'').trim();if(!q)return showToast('Digite um ID ou Nick.');if(socket&&networkReady)socket.emit('profileLookup',{query:q});else api('/api/profile?q='+encodeURIComponent(q)).then(d=>renderProfileSearchResults(d.profiles||[])).catch(e=>showToast('❌ '+e.message));}
 function lookupProfileById(id){mpTab('profile');const i=document.getElementById('profileSearchInput');if(i)i.value=id;lookupProfileUI();}
