@@ -84,6 +84,28 @@ async function getAccount(id){const a=(await q('SELECT * FROM accounts WHERE id=
 app.get('/',(req,res)=>res.send('Reinos de Aço V12 — servidor online ⚔️ PostgreSQL ativo'));
 app.get('/api/health',async(req,res)=>{try{if(pool)await q('SELECT 1');res.json({ok:true,version:'V12-CORRIGIDO',database:!!pool,time:Date.now()})}catch(e){res.status(500).json({ok:false,error:e.message})}});
 
+// ==================== PAINEL ADMIN ====================
+function adminGuard(req,res,next){
+  const configured=String(process.env.ADMIN_KEY||'').trim();
+  const supplied=String(req.headers['x-admin-key']||req.query.key||'').trim();
+  if(!configured) return res.status(503).json({ok:false,error:'ADMIN_KEY não configurada no Render.'});
+  if(!supplied || supplied!==configured) return res.status(401).json({ok:false,error:'Chave administrativa inválida.'});
+  next();
+}
+
+app.get('/api/admin/status',adminGuard,async(req,res)=>{
+  try{
+    if(pool) await q('SELECT 1');
+    const count=Object.keys(players).length;
+    res.json({ok:true,online:true,players:count,version:'V14.3',database:!!pool,time:Date.now(),uptime:Math.floor(process.uptime())});
+  }catch(e){res.status(500).json({ok:false,online:false,players:Object.keys(players).length,error:e.message,time:Date.now()});}
+});
+
+app.post('/api/admin/restart',adminGuard,(req,res)=>{
+  res.json({ok:true,message:'Servidor será reiniciado agora.'});
+  setTimeout(()=>process.exit(0),350);
+});
+
 app.post('/api/auth/register',async(req,res)=>{try{
   const nick=normalizeNick(req.body.nick), phone=normPhone(req.body.phone), pass=String(req.body.password||'');
   if(nick.length<3)throw new Error('Nick precisa ter pelo menos 3 caracteres.');
