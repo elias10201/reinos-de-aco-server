@@ -1,1 +1,47 @@
+name: Gerar APK Android
 
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Baixar arquivos do jogo
+      uses: actions/checkout@v4
+
+    - name: Preparar Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Preparar Java 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Instalar Motor (Cordova)
+      run: npm install -g cordova
+
+    - name: Construir o APK
+      run: |
+        mkdir temp_build
+        cp -r * temp_build/ || true
+        cordova create app com.elias.reinosdeaco "ReinosDeAco"
+        rm -rf app/www/*
+        cp -r temp_build/* app/www/
+        cd app
+        
+        # ESSA É A LINHA MÁGICA QUE COLOCA O SEU ÍCONE NO APP
+        sed -i 's|</widget>|    <icon src="www/icone.png" />\n</widget>|' config.xml
+        
+        cordova platform add android
+        cordova build android
+
+    - name: Disponibilizar APK para Download
+      uses: actions/upload-artifact@v4
+      with:
+        name: Reinos-de-Aco-APK
+        path: app/platforms/android/app/build/outputs/apk/debug/app-debug.apk
