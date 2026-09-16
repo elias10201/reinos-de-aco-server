@@ -53,7 +53,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0a0a0a;font-family:
 #toast{position:fixed;top:25%;left:50%;transform:translateX(-50%);z-index:600;pointer-events:none;text-align:center}
 .toastMsg{background:rgba(0,0,0,0.9);padding:12px 24px;margin:5px;border-radius:6px;border-left:5px solid #ffd700;animation:slideIn 0.3s;font-weight:bold;text-shadow:1px 1px 0 #000;box-shadow:0 4px 8px rgba(0,0,0,0.5)}
 @keyframes slideIn{from{transform:translateY(-20px);opacity:0}to{transform:translateY(0);opacity:1}}
-#questLog{position:fixed;bottom:100px;left:10px;background:rgba(0,0,0,0.8);padding:10px 14px;border:2px solid #4a3a2a;border-radius:6px;font-size:12px;max-width:240px;z-index:100;box-shadow:0 3px 6px rgba(0,0,0,0.5)}
+#questLog{position:fixed;top:112px;left:10px;background:rgba(0,0,0,0.8);padding:10px 14px;border:2px solid #4a3a2a;border-radius:6px;font-size:12px;max-width:250px;z-index:140;box-shadow:0 3px 6px rgba(0,0,0,0.5)}
 #questLog b{color:#ffd700}
 
 /* SISTEMA PREMIUM E PAINEIS */
@@ -133,6 +133,15 @@ body{background:#05070d}
 .chatLine{margin:2px 0;color:#e8f8ff}.chatLine b{color:#ffd34e}.chatForm{display:flex;gap:6px}.chatForm input{flex:1;min-width:0;border:1px solid rgba(57,234,255,.3);border-radius:10px;padding:9px;color:#fff;background:rgba(4,8,15,.9);outline:none}.chatForm button{border:1px solid #ffd34e;border-radius:10px;background:#5b3b0b;color:#fff;padding:0 12px;font-weight:800}
 #mobileMenuBtn{position:fixed;right:12px;top:180px;z-index:180;display:none;border:1px solid rgba(255,211,78,.45);border-radius:12px;background:rgba(5,9,16,.82);color:#fff;padding:9px 11px;font-weight:800;pointer-events:auto}
 @media(max-width:850px),(hover:none){#networkStatus{top:5px;font-size:9px;padding:6px 9px}.bar{border-radius:8px}.menu h1{font-size:36px}.classBtn{min-width:190px;padding:15px}.menu button{border-radius:11px}.chatBox{bottom:170px}.actionBtn{backdrop-filter:blur(7px)}}
+
+/* ===== ORIENTAÇÃO + MISSÕES SEM SOBREPOSIÇÃO ===== */
+#orientationPanel{position:fixed;inset:0;background:rgba(0,0,0,.97);z-index:2900;display:none;align-items:center;justify-content:center;padding:20px}
+.orientationCard{width:min(520px,94vw);background:linear-gradient(145deg,rgba(18,27,42,.98),rgba(4,7,13,.98));border:1px solid rgba(57,234,255,.38);border-radius:22px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.7)}
+.orientationCard h2{margin:0 0 8px;color:#fff}.orientationCard p{color:#9fb0c2;font-size:13px;line-height:1.5;margin-bottom:16px}
+.orientationOptions{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.orientationOption{min-height:100px;border:1px solid rgba(255,255,255,.12);border-radius:16px;background:linear-gradient(145deg,rgba(30,40,58,.9),rgba(8,12,20,.9));color:#fff;padding:12px;cursor:pointer;text-align:center}.orientationOption.active{border-color:#39eaff;box-shadow:0 0 20px rgba(57,234,255,.18)}.orientationOption .oIcon{font-size:32px;display:block;margin-bottom:6px}.orientationOption b{display:block}.orientationClose{width:100%;margin-top:16px;padding:12px;border-radius:12px;border:1px solid rgba(255,211,78,.5);background:linear-gradient(180deg,#76511a,#392309);color:#fff;font-weight:800}
+@media (orientation:landscape){#questLog{top:105px;left:10px;max-width:235px}}
+@media (max-height:520px){#questLog{top:78px;left:8px;max-width:220px;padding:7px 9px;font-size:10px}.bar{margin-bottom:3px}.orientationOptions{gap:7px}.orientationOption{min-height:78px;padding:8px}}
+@media (max-width:430px){#questLog{top:106px;left:8px;max-width:205px;font-size:10px;padding:7px 9px}}
 
 /* ===== CONTROLE DE GRÁFICOS + ILHA DE BATE-PAPO ===== */
 #graphicsPanel{position:fixed;inset:0;background:radial-gradient(circle at 50% 10%,rgba(30,60,95,.34),rgba(0,0,0,.97) 65%);z-index:2800;display:none;align-items:center;justify-content:center;padding:20px}
@@ -271,6 +280,20 @@ body.social-mode #socialHub{pointer-events:auto}
 </div>
 <button id="mobileMenuBtn" onclick="backToMenu()">☰ MENU</button>
 
+<div id="orientationPanel">
+  <div class="orientationCard">
+    <h2>📱 Orientação da tela</h2>
+    <p>Escolha como você prefere jogar. No APK, a opção escolhida pode ser aplicada sem depender da rotação automática do celular.</p>
+    <div class="orientationOptions">
+      <button class="orientationOption" data-orientation="auto" onclick="setOrientationMode('auto')"><span class="oIcon">🔄</span><b>Automática</b></button>
+      <button class="orientationOption" data-orientation="portrait" onclick="setOrientationMode('portrait')"><span class="oIcon">📱</span><b>Vertical</b></button>
+      <button class="orientationOption" data-orientation="landscape" onclick="setOrientationMode('landscape')"><span class="oIcon">📲</span><b>Horizontal</b></button>
+    </div>
+    <div id="orientationStatus" style="text-align:center;color:#39eaff;font-size:12px;margin-top:15px"></div>
+    <button class="orientationClose" onclick="closeOrientationPanel()">✓ APLICAR E FECHAR</button>
+  </div>
+</div>
+
 <div id="graphicsPanel">
   <div class="graphicsCard">
     <h2>⚙️ Qualidade dos Gráficos</h2>
@@ -392,6 +415,7 @@ body.social-mode #socialHub{pointer-events:auto}
   
   <div class="row" style="margin-top:10px;">
     <button class="small" id="lobbyGraphicsBtn" onclick="openGraphicsPanel()">⚙️ Gráficos</button>
+    <button class="small" onclick="openOrientationPanel()">📱 Orientação</button>
     <button class="small" onclick="openSocialHub()" style="background:linear-gradient(180deg,#164f65,#092532);border-color:#39eaff;color:#dffaff">🏝️ Ilha do Bate-Papo</button>
   </div>
   <div class="lobbyFeatureRow">
@@ -507,6 +531,26 @@ function setGraphicsQuality(level){
 }
 function openGraphicsPanel(){initAudio();document.getElementById('graphicsPanel').style.display='flex';applyGraphicsQuality();}
 function closeGraphicsPanel(){document.getElementById('graphicsPanel').style.display='none';}
+
+// ==================== ORIENTAÇÃO DA TELA ====================
+let orientationMode=localStorage.getItem('reinosAcoOrientation')||'auto';
+if(!['auto','portrait','landscape'].includes(orientationMode))orientationMode='auto';
+function orientationLabel(){return {auto:'AUTOMÁTICA',portrait:'VERTICAL',landscape:'HORIZONTAL'}[orientationMode]||'AUTOMÁTICA'}
+function applyOrientationMode(){
+  document.querySelectorAll('.orientationOption').forEach(b=>b.classList.toggle('active',b.dataset.orientation===orientationMode));
+  const st=document.getElementById('orientationStatus');if(st)st.textContent='Orientação atual: '+orientationLabel();
+  try{if(screen.orientation && screen.orientation.lock && orientationMode!=='auto'){screen.orientation.lock(orientationMode).catch(()=>{});}}catch(e){}
+}
+function setOrientationMode(mode){
+  if(!['auto','portrait','landscape'].includes(mode))return;
+  orientationMode=mode;try{localStorage.setItem('reinosAcoOrientation',mode)}catch(e){}
+  applyOrientationMode();
+  showToast('📱 Orientação: '+orientationLabel());
+  try{if(document.documentElement.requestFullscreen && !document.fullscreenElement)document.documentElement.requestFullscreen().then(()=>{if(screen.orientation && screen.orientation.lock && mode!=='auto')screen.orientation.lock(mode).catch(()=>{});}).catch(()=>{});}catch(e){}
+}
+function openOrientationPanel(){initAudio();document.getElementById('orientationPanel').style.display='flex';applyOrientationMode();}
+function closeOrientationPanel(){document.getElementById('orientationPanel').style.display='none';}
+applyOrientationMode();
 
 // ==================== AUDIO SYSTEM ====================
 let AudioContext=null;
