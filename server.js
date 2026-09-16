@@ -7,7 +7,10 @@ const crypto = require('crypto');
 const { Pool } = require('pg');
 
 const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) console.warn('⚠️ DATABASE_URL não configurada. O servidor não poderá salvar contas até o PostgreSQL ser configurado.');
+const RECOVERY_SECRET = process.env.RECOVERY_SECRET || 'REINOS-DE-ACO-TROQUE-ESTE-SEGREDO';
+const ADMIN_WHATSAPP = (process.env.ADMIN_WHATSAPP || '5544997270282').replace(/\D/g, '');
+if (!DATABASE_URL) console.warn('⚠️ DATABASE_URL não configurada. Cadastros e contas precisam de PostgreSQL.');
+if (!process.env.RECOVERY_SECRET) console.warn('⚠️ RECOVERY_SECRET não configurado. Defina um segredo forte no Render.');
 const pool = DATABASE_URL ? new Pool({
   connectionString: DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
@@ -30,6 +33,15 @@ function validNick(s) { return typeof s === 'string' && /^[\p{L}\p{N}_ .-]{3,20}
 function genId(prefix='RA') { return prefix + '-' + crypto.randomBytes(5).toString('hex').toUpperCase(); }
 function randomCode() { return String(crypto.randomInt(100000, 1000000)); }
 function sha256(v) { return crypto.createHash('sha256').update(String(v)).digest('hex'); }
+function recoveryCode(accountId) {
+  const h = crypto.createHmac('sha256', RECOVERY_SECRET).update(String(accountId)).digest('hex').toUpperCase();
+  return 'RA-' + h.slice(0, 4) + '-' + h.slice(4, 8) + '-' + h.slice(8, 12);
+}
+function whatsappUrlForRecovery(account) {
+  const code = recoveryCode(account.id);
+  const text = `Olá, quero recuperar minha conta do Reinos de Aço.%0A🆔 ID: ${encodeURIComponent(account.id)}%0A👤 Nick: ${encodeURIComponent(account.nick)}%0A🔐 Código de recuperação: ${encodeURIComponent(code)}`;
+  return `https://wa.me/${ADMIN_WHATSAPP}?text=${text}`;
+}
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.scryptSync(password, salt, 64).toString('hex');
@@ -80,6 +92,7 @@ async function sendWhatsAppCode(phone, code) {
 async function initDatabase() {
   if (!pool) return;
   try { await pool.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`); } catch(e) { console.warn('pgcrypto:', e.message); }
+  await pool.query(`CREATE SEQUENCE IF NOT EXISTS account_id_seq START WITH 1;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS accounts (
       id VARCHAR(32) PRIMARY KEY,
@@ -149,7 +162,157 @@ const app = express();
 const server = http.createServer(app);
 
 const io = new Server(server, {
-  cors: { origin: "*" }
+  cors: { origin: true, credentials: false, methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'] }
+});
+
+// CORS para GitHub Pages, arquivo local (origin "null") e outros clientes do jogo.
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Max-Age', '86400');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+app.use(express.json({ limit: '100kb' }));
+
+function requireDatabase(res) {
+  if (!pool) {
+    res.status(503).json({ error: 'Banco de dados não configurado. No Render, conecte um PostgreSQL e defina DATABASE_URL.' });
+    return false;
+  }
+  return true;
+}
+
+async function accountResponse(account) {
+  const chars = await getCharacters(account.id);
+  return {
+    id: account.id,
+    nick: account.nick,
+    phone: account.phone,
+    verified: !!account.verified,
+    activeCharacterId: account.active_character_id || null
+  , characters: chars
+  };
+}
+
+// ===== AUTENTICAÇÃO HTTP =====
+app.post('/api/auth/register', async (req, res) => {
+  if (!requireDatabase(res)) return;
+  try {
+    const nick = safeText(req.body?.nick, 20).trim();
+    const phone = normalizePhone(req.body?.phone);
+    const password = String(req.body?.password || '');
+    if (!validNick(nick)) return res.status(400).json({ error: 'Nick inválido. Use 3 a 20 caracteres.' });
+    if (!validPhone(phone)) return res.status(400).json({ error: 'Número de WhatsApp inválido.' });
+    if (!validPassword(password)) return res.status(400).json({ error: 'A senha precisa ter pelo menos 6 caracteres.' });
+
+    const exists = await pool.query('SELECT id FROM accounts WHERE phone=$1 OR LOWER(nick)=LOWER($2) LIMIT 1', [phone, nick]);
+    if (exists.rows[0]) return res.status(409).json({ error: 'Esse WhatsApp ou Nick já está cadastrado.' });
+
+    let id;
+    for (let i=0;i<5;i++) {
+      const q = await pool.query("SELECT LPAD(nextval('account_id_seq')::text,6,'0') AS id");
+      const candidate = q.rows[0].id;
+      const used = await pool.query('SELECT 1 FROM accounts WHERE id=$1', [candidate]);
+      if (!used.rows[0]) { id = candidate; break; }
+    }
+    if (!id) return res.status(500).json({ error: 'Não foi possível gerar o ID da conta.' });
+
+    const q = await pool.query('INSERT INTO accounts(id,phone,nick,password_hash) VALUES($1,$2,$3,$4) RETURNING id,nick,phone,verified,active_character_id', [id,phone,nick,hashPassword(password)]);
+    const account = q.rows[0];
+    const token = await createSession(account.id);
+    const recovery = recoveryCode(account.id);
+    res.json({ token, account: await accountResponse(account), recoveryCode: recovery, whatsappUrl: whatsappUrlForRecovery(account) });
+  } catch (e) {
+    console.error('register:', e);
+    if (e.code === '23505') return res.status(409).json({ error: 'WhatsApp ou Nick já cadastrado.' });
+    res.status(500).json({ error: 'Erro ao criar conta.' });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  if (!requireDatabase(res)) return;
+  try {
+    const login = String(req.body?.login || '').trim();
+    const password = String(req.body?.password || '');
+    if (!login || !password) return res.status(400).json({ error: 'Informe o WhatsApp/Nick e a senha.' });
+    const phone = normalizePhone(login);
+    const q = await pool.query('SELECT id,nick,phone,verified,active_character_id,password_hash FROM accounts WHERE phone=$1 OR LOWER(nick)=LOWER($2) LIMIT 1', [phone, login]);
+    const account = q.rows[0];
+    if (!account || !verifyPassword(password, account.password_hash)) return res.status(401).json({ error: 'WhatsApp/Nick ou senha incorretos.' });
+    const token = await createSession(account.id);
+    res.json({ token, account: await accountResponse(account) });
+  } catch (e) { console.error('login:',e); res.status(500).json({ error:'Erro ao entrar na conta.' }); }
+});
+
+app.get('/api/me', async (req, res) => {
+  if (!requireDatabase(res)) return;
+  try {
+    const account = await getSessionAccount(authTokenFromRequest(req));
+    if (!account) return res.status(401).json({ error:'Sessão inválida ou expirada.' });
+    res.json({ account: await accountResponse(account), characters: await getCharacters(account.id) });
+  } catch(e) { console.error('me:',e); res.status(500).json({error:'Erro ao carregar conta.'}); }
+});
+
+app.post('/api/auth/request-reset', async (req, res) => {
+  if (!requireDatabase(res)) return;
+  try {
+    const phone = normalizePhone(req.body?.phone);
+    if (!validPhone(phone)) return res.status(400).json({error:'Número de WhatsApp inválido.'});
+    const q = await pool.query('SELECT id,nick,phone FROM accounts WHERE phone=$1 LIMIT 1',[phone]);
+    if (!q.rows[0]) return res.status(404).json({error:'Não encontramos uma conta com esse WhatsApp.'});
+    const account=q.rows[0];
+    // Não envia automaticamente pela API. Apenas abre o WhatsApp do administrador
+    // com a mensagem pronta, exatamente como o botão de compra de diamantes.
+    res.json({message:'WhatsApp aberto com sua solicitação pronta. Envie a mensagem para continuar.', whatsappUrl:whatsappUrlForRecovery(account), id:account.id});
+  } catch(e) { console.error('request-reset:',e); res.status(500).json({error:'Erro ao preparar a recuperação.'}); }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+  if (!requireDatabase(res)) return;
+  try {
+    const phone = normalizePhone(req.body?.phone);
+    const code = String(req.body?.code || '').trim().toUpperCase();
+    const newPassword = String(req.body?.newPassword || '');
+    if (!validPhone(phone) || !validPassword(newPassword)) return res.status(400).json({error:'Número ou nova senha inválidos.'});
+    const q = await pool.query('SELECT id,nick,phone,verified,active_character_id FROM accounts WHERE phone=$1 LIMIT 1',[phone]);
+    const account=q.rows[0];
+    if (!account) return res.status(404).json({error:'Conta não encontrada.'});
+    if (code !== recoveryCode(account.id)) return res.status(401).json({error:'Código de recuperação incorreto.'});
+    await pool.query('UPDATE accounts SET password_hash=$1,updated_at=NOW() WHERE id=$2',[hashPassword(newPassword),account.id]);
+    await pool.query('DELETE FROM sessions WHERE account_id=$1',[account.id]);
+    const token=await createSession(account.id);
+    res.json({message:'Senha alterada com sucesso.',token,account:await accountResponse(account)});
+  } catch(e) { console.error('reset-password:',e); res.status(500).json({error:'Erro ao alterar a senha.'}); }
+});
+
+app.get('/api/profile', async (req,res)=>{
+  if (!requireDatabase(res)) return;
+  try { res.json({profiles:await publicProfilesSearch(req.query?.q)}); }
+  catch(e){console.error('profile:',e);res.status(500).json({error:'Erro ao consultar perfil.'});}
+});
+
+app.post('/api/characters', async (req,res)=>{
+  if (!requireDatabase(res)) return;
+  try {
+    const account=await getSessionAccount(authTokenFromRequest(req)); if(!account)return res.status(401).json({error:'Sessão inválida.'});
+    const name=safeText(req.body?.name,20).trim(), classe=safeText(req.body?.classe,20), color=safeText(req.body?.color,7);
+    const allowed=['guerreiro','mago','arqueiro','duelista'];
+    if(!/^[\p{L}\p{N}_ .-]{2,20}$/u.test(name)||!allowed.includes(classe)||!/^#[0-9a-fA-F]{6}$/.test(color))return res.status(400).json({error:'Nome, classe ou cor inválidos.'});
+    const count=await pool.query('SELECT COUNT(*)::int AS n FROM characters WHERE account_id=$1',[account.id]); if(count.rows[0].n>=8)return res.status(400).json({error:'Limite de 8 personagens por conta.'});
+    const q=await pool.query('INSERT INTO characters(account_id,name,class_key,color) VALUES($1,$2,$3,$4) RETURNING id,name,class_key,color,created_at',[account.id,name,classe,color]);
+    if(!account.active_character_id)await pool.query('UPDATE accounts SET active_character_id=$1 WHERE id=$2',[q.rows[0].id,account.id]);
+    res.json({character:q.rows[0]});
+  } catch(e){console.error('character create:',e);res.status(500).json({error:'Não foi possível criar o personagem.'});}
+});
+
+app.post('/api/characters/select', async (req,res)=>{
+  if (!requireDatabase(res)) return;
+  try { const account=await getSessionAccount(authTokenFromRequest(req)); if(!account)return res.status(401).json({error:'Sessão inválida.'}); const c=await getCharacter(account.id,req.body?.id); if(!c)return res.status(404).json({error:'Personagem não encontrado.'}); await pool.query('UPDATE accounts SET active_character_id=$1,updated_at=NOW() WHERE id=$2',[c.id,account.id]); res.json({character:c}); }
+  catch(e){console.error('character select:',e);res.status(500).json({error:'Não foi possível selecionar o personagem.'});}
 });
 
 app.get('/', (req, res) => {
@@ -291,6 +454,17 @@ function removeFromRoom(userId) {
     }
   }
 }
+
+io.use(async (socket, next) => {
+  try {
+    if (!pool) return next(new Error('Banco de dados não configurado.'));
+    const token = String(socket.handshake.auth?.token || '');
+    const account = await getSessionAccount(token);
+    if (!account) return next(new Error('Sessão inválida.'));
+    socket.data.account = account;
+    next();
+  } catch (e) { next(new Error('Falha na autenticação.')); }
+});
 
 io.on('connection', (socket) => {
   console.log('Novo guerreiro conectou:', socket.id);
